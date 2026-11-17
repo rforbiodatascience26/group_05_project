@@ -13,8 +13,8 @@ library("fs")
 Ensure the raw data directory exists locally
 
 ```{r}
-dir_create("data/_raw")
-dir_create("data")
+dir_create("../data/_raw")
+dir_create("../data")
 ```
 
 Define the online URL
@@ -26,7 +26,7 @@ data_url <- "https://vincentarelbundock.github.io/Rdatasets/csv/CardioDataSets/m
 Download the raw file into local data/\_raw/ folder
 
 ```{r}
-raw_file_path <- "data/_raw/mriCardioVars_tbl_df.csv"
+raw_file_path <- "../data/_raw/mriCardioVars_tbl_df.csv"
 download.file(url = data_url, destfile = raw_file_path, mode = "wb")
 ```
 
@@ -39,5 +39,5 @@ raw_data <- read_csv(file = raw_file_path)
 Process and save it as 01_dat_load.tsv file
 
 ```{r}
-write_tsv(x = raw_data, file = "data/01_dat_load.tsv")
+write_tsv(x = raw_data, file = "../data/01_dat_load.tsv")
 ```
