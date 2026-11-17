@@ -9,8 +9,16 @@
 
 ## Presentation Link
 
+
 ## Data Retrieval
-The raw dataset (`mriCardioVars_tbl_df.csv`) is placed locally in the 
-`data/_raw/` directory. Because raw data is never edited or pushed directly to 
-the central repository, execute `01_load.qmd` to process the data locally from 
-the source directory.
+This project utilizes the MRI Cardiovascular and Brain MRI dataset 
+(`mriCardioVars_tbl_df.csv`)
+The dataset is downloaded automatically from [Rdatasets]
+(https://vincentarelbundock.github.io/Rdatasets/doc/CardioDataSets/mriCardioVars_tbl_df.html). 
+
+To get the data:
+1. Run **`01_load.qmd`**.
+2. The script will automatically download the raw dataset into the local 
+`data/_raw/` folder and generate the processed `.tsv` file. 
+3. Per course guidelines, all raw and processed data files are ignored by 
+`.gitignore` and remain only on the local machine.
