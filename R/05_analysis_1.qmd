@@ -9,6 +9,8 @@ library("tidyverse")
 library("ggplot2")
 library("gridExtra")
 library("grid")
+library("purrr")
+library("patchwork")
 ```
 
 Load the clean and augmented data
@@ -37,6 +39,152 @@ ggsave(
   death_table,
   width = 10,
   height = 5,
+  dpi = 300
+)
+```
+
+Find binary variables and turn them into categorical
+```{r}
+clean_data <- clean_data |> 
+  mutate(
+    diabetes = factor(
+      diabetes,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  ) |> 
+  mutate(
+    chf = factor(
+      chf,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  ) |> 
+  mutate(
+    death = factor(
+      death,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  )
+```
+
+Categorical values
+```{r}
+categorical_cols <- c("sex", "race", "smoker", "chf", "diabetes")
+
+plots <- categorical_cols |> 
+  map(function(col) {
+    clean_data |> 
+      filter(!is.na(death), !is.na(.data[[col]])) |> 
+      group_by(.data[[col]]) |> 
+      summarise(
+        n = n(),
+        percent_death = 100 * mean(death == 1),
+        .groups = "drop"
+      ) |> 
+      ggplot(aes(x = .data[[col]], y = percent_death)) +
+      geom_col(fill = "steelblue", width = 0.6) +
+      geom_text(
+        aes(label = paste0(round(percent_death, 1), "%")),
+        vjust = -0.4,
+        size = 3
+      ) +
+      labs(
+        title = col,
+        x = NULL,
+        y = "Death rate (%)"
+      ) +
+      theme_minimal(base_size = 10) +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1)
+      )
+  })
+
+combined_plot <- wrap_plots(plots, ncol = 2) +
+  plot_annotation(
+    title = "Death rate by categorical variables",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold")
+    )
+  )
+
+combined_plot
+
+ggsave(
+  "../results/05_analysis_1/death_by_categorical_variables.png",
+  combined_plot,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+```
+
+CH2 test
+```{r}
+table(clean_data$chf, clean_data$death) |>
+  chisq.test()
+table(clean_data$smoker, clean_data$death) |>
+  chisq.test()
+table(clean_data$race, clean_data$death) |>
+  chisq.test()
+table(clean_data$sex, clean_data$death) |>
+  chisq.test()
+table(clean_data$diabetes, clean_data$death) |>
+  chisq.test()
+```
+
+Numeric values
+```{r}
+numeric_cols <- clean_data |> 
+  select(where(is.numeric)) |> 
+  names()
+
+plots <- numeric_cols |> 
+  map(function(col) {
+    clean_data |> 
+      filter(!is.na(death), !is.na(.data[[col]])) |> 
+      ggplot(
+        aes(
+          x = factor(death, levels = c(0, 1), labels = c("No death", "Death")),
+          y = .data[[col]],
+          fill = factor(death, levels = c(0, 1), labels = c("No death", "Death"))
+        )
+      ) +
+      geom_boxplot(
+        outlier.shape = 21,
+        outlier.size = 1.5,
+        alpha = 0.8
+      ) +
+      scale_fill_manual(
+        values = c("No death" = "steelblue", "Death" = "tomato")
+      ) +
+      labs(
+        title = col,
+        x = NULL,
+        y = col
+      ) +
+      theme_minimal(base_size = 11) +
+      theme(
+        legend.position = "none"
+      )
+  })
+
+combined_plot <- wrap_plots(plots, ncol = 2) +
+  plot_annotation(
+    title = "Numeric variables by death status",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold")
+    )
+  )
+
+combined_plot
+
+ggsave(
+  "../results/05_analysis_1/numeric_variables_by_death.png",
+  combined_plot,
+  width = 12,
+  height = 8,
   dpi = 300
 )
 ```
