@@ -3,3 +3,41 @@ title: "05_analysis_1"
 format: html
 ---
 
+Library
+```{r}
+library("tidyverse")
+library("ggplot2")
+library("gridExtra")
+library("grid")
+```
+
+Load the clean and augmented data
+```{r}
+clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
+```
+
+Look into 'death' variable
+```{r}
+death_table <- clean_data |> 
+  count(death) 
+
+clean_data |>
+  summarise(,
+    n_deaths = sum(death == 1),
+    percent_deaths = round(
+      100 * mean(death == 1),
+      1
+    )
+  )
+
+death_table <- tableGrob(death_table)
+
+ggsave(
+  "../results/05_analysis_1/death_variable_table.png",
+  death_table,
+  width = 10,
+  height = 5,
+  dpi = 300
+)
+```
+
