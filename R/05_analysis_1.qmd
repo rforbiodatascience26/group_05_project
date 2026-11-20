@@ -37,8 +37,8 @@ death_table <- tableGrob(death_table)
 ggsave(
   "../results/05_analysis_1/death_variable_table.png",
   death_table,
-  width = 10,
-  height = 5,
+  width = 20,
+  height = 15,
   dpi = 300
 )
 ```
@@ -59,24 +59,18 @@ clean_data <- clean_data |>
       levels = c(0, 1),
       labels = c("no", "yes")
     )
-  ) |> 
-  mutate(
-    death = factor(
-      death,
-      levels = c(0, 1),
-      labels = c("no", "yes")
-    )
-  )
+  ) 
 ```
 
 Categorical values
 ```{r}
-categorical_cols <- c("sex", "race", "smoker", "chf", "diabetes")
+categorical_cols <- clean_data |> 
+  select(where(is.character) | where(is.factor)) |> 
+  names()
 
 plots <- categorical_cols |> 
   map(function(col) {
     clean_data |> 
-      filter(!is.na(death), !is.na(.data[[col]])) |> 
       group_by(.data[[col]]) |> 
       summarise(
         n = n(),
@@ -114,8 +108,8 @@ combined_plot
 ggsave(
   "../results/05_analysis_1/death_by_categorical_variables.png",
   combined_plot,
-  width = 14,
-  height = 10,
+  width = 20,
+  height = 15,
   dpi = 300
 )
 ```
@@ -143,7 +137,6 @@ numeric_cols <- clean_data |>
 plots <- numeric_cols |> 
   map(function(col) {
     clean_data |> 
-      filter(!is.na(death), !is.na(.data[[col]])) |> 
       ggplot(
         aes(
           x = factor(death, levels = c(0, 1), labels = c("No death", "Death")),
@@ -183,8 +176,8 @@ combined_plot
 ggsave(
   "../results/05_analysis_1/numeric_variables_by_death.png",
   combined_plot,
-  width = 12,
-  height = 8,
+  width = 20,
+  height = 15,
   dpi = 300
 )
 ```
