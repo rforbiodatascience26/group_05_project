@@ -27,6 +27,13 @@ clean_data <- clean_data |>
   relocate(smoker, .after = yrsquit)
 ```
 
+Drop NAs made after augmenting the data - NA indicates a mistake in an entry (patient that quit indicating a former smoker but 0 packs a year indicating a never smoker)
+```{r}
+clean_data <- clean_data |> 
+  drop_na()
+```
+
+
 Save augmented data
 ```{r}
 write_tsv(x = clean_data, file = "../data/03_dat_aug.tsv")
