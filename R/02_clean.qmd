@@ -1,0 +1,93 @@
+---
+title: "02_clean"
+format: html
+---
+
+Library
+```{r}
+library("tidyverse")
+library("fs")
+library("janitor")
+```
+
+Load the unclean data
+```{r}
+unclean_data <- read_tsv(file = "../data/01_dat_load.tsv", show_col_types = FALSE)
+```
+
+Inspecting the data
+```{r}
+unclean_data |> 
+  view() |>
+  spec()
+```
+
+Change the metric system for weight to European
+```{r}
+unclean_data <- unclean_data |>
+  mutate(weight = round(weight * 0.45359237, 1))
+```
+
+Inspecting columns
+```{r}
+names(unclean_data)
+```
+
+Removing insignificant columns
+```{r}
+unclean_data <- unclean_data %>% select(-rownames, -ptid, -mridate)
+```
+
+Inspect race values
+```{r}
+unique(unclean_data$race)
+class(unclean_data$race)
+levels(unclean_data$race)
+```
+
+Check for NAs
+```{r}
+unclean_data <- unclean_data |> 
+  mutate(
+    race = na_if(
+      race,
+      "Subject did not identify as White, Black or Asian")
+    ) 
+
+unclean_data |> 
+  summarise(
+    across(
+      everything(),
+      ~sum(is.na(.x))
+    )
+  ) |> 
+  pivot_longer(
+    everything(),
+    names_to = "column",
+    values_to = "n_missing"
+  ) |> 
+  mutate(
+    percent_missing = round(
+      100 * n_missing / nrow(unclean_data),
+      1
+    )
+  )
+
+```
+
+Discard rows with NAs 
+```{r}
+unclean_data <- unclean_data |>
+  drop_na()
+```
+
+Looking into the dataset after cleaning
+```{r}
+unclean_data |>
+  view()
+```
+
+Saving the clean data
+```{r}
+write_tsv(x = unclean_data, file = "../data/02_dat_clean.tsv")
+```

@@ -1,0 +1,34 @@
+---
+title: "03_describe"
+format: html
+---
+
+Library
+```{r}
+library("tidyverse")
+```
+
+Load the clean data
+```{r}
+clean_data <- read_tsv(file = "../data/02_dat_clean.tsv", show_col_types = FALSE)
+```
+
+Make new column - 'smoker':
+"former" - used to smoke but quit
+"never" - never smoked
+"current" - active smoker
+```{r}
+clean_data <- clean_data |>
+  mutate(smoker = case_when(
+    packyrs == 0 & yrsquit == 0 ~ "never",
+    packyrs != 0 & yrsquit != 0 ~ "former",
+    packyrs != 0 & yrsquit == 0 ~ "current"
+  )) |>
+  relocate(smoker, .after = yrsquit)
+```
+
+Save augmented data
+```{r}
+write_tsv(x = clean_data, file = "../data/03_dat_aug.tsv")
+```
+

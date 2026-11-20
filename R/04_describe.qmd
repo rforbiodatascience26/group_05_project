@@ -1,0 +1,16 @@
+---
+title: "04_describe"
+format: html
+---
+
+Library
+```{r}
+library("tidyverse")
+library("ggplot2")
+library("purrr")
+```
+
+Load the clean data
+```{r}
+clean_data <- read_tsv(file = "../data/02_clean_data.tsv", show_col_types = FALSE)
+```
