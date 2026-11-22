@@ -1,0 +1,200 @@
+---
+title: "06_analysis_2"
+format: html
+---
+
+Library
+```{r}
+library("tidyverse")
+library("ggplot2")
+library("patchwork")
+```
+
+Load the clean and augmented data
+```{r}
+clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
+```
+
+Prepare the data for PCA.
+'obstime' is removed: it is the time to death, so it would leak the outcome.
+'volinf' is highly skewed, so it is log-transformed.
+Categorical variables become dummy variables.
+```{r}
+x_data <- clean_data |>
+  select(-obstime) |>
+  mutate(volinf = log1p(volinf)) |>
+  model.matrix(death ~ ., data = _) |>
+  as_tibble() |>
+  select(-`(Intercept)`) |>
+  mutate(death = clean_data$death)
+```
+
+PCA on all patients (death is only used to colour the points)
+```{r}
+pca_all <- x_data |>
+  select(-death) |>
+  prcomp(center = TRUE, scale. = TRUE)
+
+scores_all <- pca_all$x |>
+  as_tibble() |>
+  mutate(death = factor(x_data$death, levels = c(0, 1), 
+                        labels = c("No death", "Death")))
+
+pca_plot <- scores_all |>
+  ggplot(aes(x = PC1, y = PC2, colour = death)) +
+  geom_point(alpha = 0.6) +
+  stat_ellipse() +
+  scale_colour_manual(values = c("No death" = "steelblue", "Death" = "tomato")) +
+  labs(title = "PCA of all patients", colour = NULL) +
+  theme_minimal(base_size = 11)
+
+pca_plot
+
+ggsave(
+  "../results/06_analysis_2/pca_scores_by_death.png",
+  pca_plot,
+  width = 20,
+  height = 15,
+  dpi = 300
+)
+```
+
+Which PCs separate deceased from alive patients? (Wilcoxon test)
+```{r}
+map_dbl(paste0("PC", 1:10), ~ wilcox.test(scores_all[[.x]] ~ scores_all$death)$p.value) |>
+  set_names(paste0("PC", 1:10)) |>
+  signif(2)
+```
+
+PCA on deceased patients only and on alive patients only: 
+loadings of PC1 and PC2.
+Each arrow is one variable (only the 12 with the longest arrows are shown): 
+the direction shows what it contributes to, the length shows how much.
+Variables with arrows pointing the same way go up and down together.
+```{r}
+plots <- c(1, 0) |> 
+  map(function(group) {
+    x_data |> 
+      filter(death == group) |> 
+      select(-death) |> 
+      select(where(~ sd(.x) > 0)) |> 
+      prcomp(center = TRUE, scale. = TRUE) |> 
+      pluck("rotation") |> 
+      as_tibble(rownames = "variable") |> 
+      slice_max(PC1^2 + PC2^2, n = 12) |> 
+      ggplot(aes(x = PC1, y = PC2, label = variable)) +
+      geom_hline(yintercept = 0, colour = "grey70") +
+      geom_vline(xintercept = 0, colour = "grey70") +
+      geom_segment(
+        aes(x = 0, y = 0, xend = PC1, yend = PC2),
+        arrow = arrow(length = unit(0.15, "cm")),
+        colour = "steelblue"
+      ) +
+      geom_text(size = 3, vjust = -0.5, check_overlap = TRUE) +
+      labs(title = ifelse(group == 1, "Deceased", "Alive")) +
+      theme_minimal(base_size = 11)
+  })
+
+combined_plot <- wrap_plots(plots, ncol = 2) +
+  plot_annotation(title = "PCA loadings: deceased vs alive patients")
+
+combined_plot
+
+ggsave(
+  "../results/06_analysis_2/pca_loadings_deceased_vs_alive.png",
+  combined_plot,
+  width = 20,
+  height = 15,
+  dpi = 300
+)
+```
+
+Top variables: standardized mean difference between deceased and alive
+```{r}
+smd_table <- x_data |>
+  pivot_longer(-death, names_to = "variable", values_to = "value") |>
+  group_by(variable) |>
+  summarise(smd = (mean(value[death == 1]) - mean(value[death == 0])) / sd(value)) |>
+  arrange(desc(abs(smd)))
+
+smd_plot <- smd_table |>
+  slice_head(n = 15) |>
+  ggplot(aes(x = smd, y = reorder(variable, abs(smd)), fill = smd > 0)) +
+  geom_col(width = 0.6) +
+  scale_fill_manual(values = c("TRUE" = "tomato", "FALSE" = "steelblue")
+                    , guide = "none") +
+  labs(title = "Top 15 variables: deceased - alive (SMD)", 
+       x = "SMD",
+       y = NULL) +
+  theme_minimal(base_size = 11)
+
+smd_plot
+
+ggsave(
+  "../results/06_analysis_2/smd_top_variables.png",
+  smd_plot,
+  width = 20,
+  height = 15,
+  dpi = 300
+)
+```
+
+Classification: stratified train / test split (70 / 30)
+```{r}
+set.seed(2026)
+
+train_idx <- x_data |>
+  mutate(row = row_number()) |>
+  group_by(death) |>
+  slice_sample(prop = 0.7) |>
+  pull(row)
+
+train_data <- x_data[train_idx, ]
+test_data <- x_data[-train_idx, ]
+```
+
+Logistic regression on the first 10 PCs (PCA fitted on the training set only) and on all the variables
+```{r}
+pca_train <- train_data |> select(-death) |> 
+  prcomp(center = TRUE, scale. = TRUE)
+
+train_pcs <- as_tibble(pca_train$x[, 1:10]) |> 
+  mutate(death = train_data$death)
+
+test_pcs <- as_tibble(predict(pca_train, select(test_data, -death))[, 1:10])
+
+fit_pca <- glm(death ~ ., data = train_pcs, family = binomial)
+fit_full <- glm(death ~ ., data = train_data, family = binomial)
+
+pred_pca <- predict(fit_pca, newdata = test_pcs, type = "response")
+pred_full <- predict(fit_full, newdata = test_data, type = "response")
+```
+
+AUC and confusion matrix on the test set.
+The death rate is ~16%, so the threshold is 
+the training death rate instead of 0.5.
+```{r}
+get_auc <- function(pred, truth) {
+  n1 <- sum(truth == 1)
+  (sum(rank(pred)[truth == 1]) - n1 * (n1 + 1) / 2) / (n1 * sum(truth == 0))
+}
+
+threshold <- mean(train_data$death)
+
+get_auc(pred_pca, test_data$death)
+get_auc(pred_full, test_data$death)
+
+table(predicted = pred_pca >= threshold, observed = test_data$death)
+table(predicted = pred_full >= threshold, observed = test_data$death)
+```
+
+Variables with the strongest effect in the full model 
+(standardized coefficients would be needed to compare them directly, 
+so we look at the z value)
+```{r}
+summary(fit_full)$coefficients |>
+  as_tibble(rownames = "variable") |>
+  filter(variable != "(Intercept)") |>
+  arrange(desc(abs(`z value`))) |>
+  slice_head(n = 10)
+```
