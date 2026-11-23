@@ -1,0 +1,214 @@
+---
+title: "07_analysis_3"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+
+Goal - examine combinations of several characteristics within the same patients
+and see if particular combinations have impact on deaths
+
+Library
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(broom)
+```
+
+Load clean data
+```{r}
+clean_data <- read_tsv(file = "data/03_dat_aug.tsv", show_col_types = FALSE)
+```
+
+
+Patients are divided into categories based on smoking exposure, lung function,
+and CHF (congestive heart failure) status
+```{r}
+profile_data <- clean_data |>
+  mutate(
+    smoking_group = if_else(
+      packyrs > 0,
+      "Smoking exposure",
+      "No smoking exposure"
+    ),
+
+    lung_group = if_else(
+      fev < median(fev, na.rm = TRUE),
+      "Lower FEV",
+      "Higher FEV"
+    ),
+
+    chf_group = if_else(
+      chf == 1,
+      "CHF",
+      "No CHF"
+    )
+  )
+```
+
+
+As we see that smoking alone is not statistically significant cause of death
+but patients who smoke still experience high death rates it could cause death in combination with other factors.
+Is smoking exposure associated with higher mortality particularly among patients
+with lower FEV?
+
+```{r}
+deceased_lung <- profile_data |>
+  filter(death == 1) |>
+  count(
+    smoking_group,
+    lung_group,
+    name = "deceased_patients"
+  ) |>
+  arrange(desc(deceased_patients))
+
+View(deceased_lung)
+```
+
+
+Calculating mortality proportions for smoking and lung function
+
+```{r}
+mortality_lung <- profile_data |>
+  group_by(smoking_group, lung_group) |>
+  summarise(
+    patients = n(),
+    deaths = sum(death == 1),
+    mortality_rate = mean(death == 1) * 100,
+    .groups = "drop"
+  ) |>
+  arrange(desc(mortality_rate))
+
+View(mortality_lung)
+```
+
+
+Visualize mortality by smoking exposure and lung function
+```{r}
+lung_plot <- mortality_lung |>
+  mutate(
+    profile = paste(
+      smoking_group,
+      lung_group,
+      sep = " + "
+    )
+  ) |>
+  ggplot(aes(
+    x = reorder(profile, mortality_rate),
+    y = mortality_rate
+  )) +
+  geom_col(fill = "steelblue") +
+  geom_text(
+    aes(label = paste0(
+      deaths, "/", patients,
+      " (", round(mortality_rate, 1), "%)"
+    )),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.35))
+  ) +
+  labs(
+    title = "Mortality by smoking exposure and lung function",
+    x = "Patient characteristics",
+    y = "Mortality (%)"
+  ) +
+  theme_minimal()
+
+lung_plot
+```
+
+Identify deceased patients by smoking exposure and CHF
+
+```{r}
+deceased_chf <- profile_data |>
+  filter(death == 1) |>
+  count(
+    smoking_group,
+    chf_group,
+    name = "deceased_patients"
+  ) |>
+  arrange(desc(deceased_patients))
+
+View(deceased_chf)
+```
+
+
+Mortality proportions between CHF and smoking:
+```{r}
+mortality_chf <- profile_data |>
+  group_by(smoking_group, chf_group) |>
+  summarise(
+    patients = n(),
+    deaths = sum(death == 1),
+    mortality_rate = mean(death == 1) * 100,
+    .groups = "drop"
+  ) |>
+  arrange(desc(mortality_rate))
+
+View(mortality_chf)
+```
+
+
+Visualizing mortality proportions:
+```{r}
+chf_plot <- mortality_chf |>
+  mutate(
+    profile = paste(
+      smoking_group,
+      chf_group,
+      sep = " + "
+    )
+  ) |>
+  ggplot(aes(
+    x = reorder(profile, mortality_rate),
+    y = mortality_rate
+  )) +
+  geom_col(fill = "steelblue") +
+  geom_text(
+    aes(label = paste0(
+      deaths, "/", patients,
+      " (", round(mortality_rate, 1), "%)"
+    )),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.35))
+  ) +
+  labs(
+    title = "Mortality by smoking exposure and CHF",
+    x = "Patient characteristics",
+    y = "Mortality (%)"
+  ) +
+  theme_minimal()
+
+chf_plot
+```
+
+Statistical analysis:
+```{r}
+profile_data |>
+  mutate(
+    combination = paste(smoking_group, lung_group, sep = " + ")
+  ) |>
+  select(combination, death) |>
+  table() |>
+  chisq.test()
+```
+Chi-square test did not identify a statistically significant association between the four patient profiles and mortality
+
+```{r}
+profile_data |>
+  mutate(
+    combination = paste(smoking_group, chf_group, sep = " + ")
+  ) |>
+  select(combination, death) |>
+  table() |>
+  chisq.test()
+```
+CHF and smoking combination is statistically significant
