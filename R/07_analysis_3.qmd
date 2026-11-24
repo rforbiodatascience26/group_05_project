@@ -21,9 +21,100 @@ Load clean data
 clean_data <- read_tsv(file = "data/03_dat_aug.tsv", show_col_types = FALSE)
 ```
 
+Convert binary values into categorical
+```{r}
+categorical_data <- clean_data |>
+  mutate(
+    diabetes = factor(
+      diabetes,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    ),
+    chf = factor(
+      chf,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  )
+```
 
-Patients are divided into categories based on smoking exposure, lung function,
-and CHF (congestive heart failure) status
+Identify categorical variables
+```{r}
+categorical_cols <- categorical_data |>
+  select(where(is.character) | where(is.factor)) |>
+  names()
+```
+
+Calculating mortality percentage
+```{r}
+mortality_summary <- categorical_cols |>
+  map(function(col) {
+    categorical_data |>
+      filter(!is.na(.data[[col]]), !is.na(death)) |>
+      group_by(category = .data[[col]]) |>
+      summarise(
+        n = n(),
+        n_deaths = sum(death == 1),
+        percent_death = 100 * mean(death == 1),
+        .groups = "drop"
+      ) |>
+      mutate(
+        variable = col,
+        category = as.character(category)
+      )
+  }) |>
+  bind_rows()
+
+mortality_summary
+```
+
+Selecting top five characteristics
+```{r}
+top5_mortality <- mortality_summary |>
+  filter(n >= 15) |>
+  arrange(desc(percent_death)) |>
+  slice_head(n = 5)
+
+view(top5_mortality)
+```
+
+Visualizing
+```{r}
+top5_plot <- top5_mortality |>
+  mutate(
+    characteristic = paste(variable, category, sep = ": ")
+  ) |>
+  ggplot(aes(
+    x = reorder(characteristic, percent_death),
+    y = percent_death
+  )) +
+  geom_col(fill = "steelblue", width = 0.6) +
+  geom_text(
+    aes(label = paste0(
+      round(percent_death, 1), "%"
+    )),
+    hjust = -0.2,
+    size = 4
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Top 5 characteristics by mortality",
+    x = NULL,
+    y = "Mortality (%)"
+  ) +
+  theme_minimal()
+
+top5_plot
+```
+
+As we see that smoking alone is not statistically significant cause of death
+but patients who smoke still experience high death rates. Maybe people who die
+from chf or diabetes also smoke and it works in combination?
+
+Preparing data
 ```{r}
 profile_data <- clean_data |>
   mutate(
@@ -32,183 +123,163 @@ profile_data <- clean_data |>
       "Smoking exposure",
       "No smoking exposure"
     ),
-
-    lung_group = if_else(
-      fev < median(fev, na.rm = TRUE),
-      "Lower FEV",
-      "Higher FEV"
-    ),
-
     chf_group = if_else(
       chf == 1,
       "CHF",
       "No CHF"
+    ),
+    diabetes_group = if_else(
+      diabetes == 1,
+      "Diabetes",
+      "No diabetes"
     )
   )
 ```
 
 
-As we see that smoking alone is not statistically significant cause of death
-but patients who smoke still experience high death rates it could cause death in combination with other factors.
-Is smoking exposure associated with higher mortality particularly among patients
-with lower FEV?
+Combining smoking and CHF
 
 ```{r}
-deceased_lung <- profile_data |>
-  filter(death == 1) |>
-  count(
-    smoking_group,
-    lung_group,
-    name = "deceased_patients"
-  ) |>
-  arrange(desc(deceased_patients))
-
-View(deceased_lung)
-```
-
-
-Calculating mortality proportions for smoking and lung function
-
-```{r}
-mortality_lung <- profile_data |>
-  group_by(smoking_group, lung_group) |>
-  summarise(
-    patients = n(),
-    deaths = sum(death == 1),
-    mortality_rate = mean(death == 1) * 100,
-    .groups = "drop"
-  ) |>
-  arrange(desc(mortality_rate))
-
-View(mortality_lung)
-```
-
-
-Visualize mortality by smoking exposure and lung function
-```{r}
-lung_plot <- mortality_lung |>
-  mutate(
-    profile = paste(
-      smoking_group,
-      lung_group,
-      sep = " + "
-    )
-  ) |>
-  ggplot(aes(
-    x = reorder(profile, mortality_rate),
-    y = mortality_rate
-  )) +
-  geom_col(fill = "steelblue") +
-  geom_text(
-    aes(label = paste0(
-      deaths, "/", patients,
-      " (", round(mortality_rate, 1), "%)"
-    )),
-    hjust = -0.1,
-    size = 3.5
-  ) +
-  coord_flip() +
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.35))
-  ) +
-  labs(
-    title = "Mortality by smoking exposure and lung function",
-    x = "Patient characteristics",
-    y = "Mortality (%)"
-  ) +
-  theme_minimal()
-
-lung_plot
-```
-
-Identify deceased patients by smoking exposure and CHF
-
-```{r}
-deceased_chf <- profile_data |>
-  filter(death == 1) |>
-  count(
-    smoking_group,
-    chf_group,
-    name = "deceased_patients"
-  ) |>
-  arrange(desc(deceased_patients))
-
-View(deceased_chf)
-```
-
-
-Mortality proportions between CHF and smoking:
-```{r}
-mortality_chf <- profile_data |>
+chf_summary <- profile_data |>
+  drop_na(smoking_group, chf_group, death) |>
   group_by(smoking_group, chf_group) |>
   summarise(
-    patients = n(),
-    deaths = sum(death == 1),
-    mortality_rate = mean(death == 1) * 100,
+    n = n(),
+    n_deaths = sum(death == 1),
+    percent_death = 100 * mean(death == 1),
     .groups = "drop"
   ) |>
-  arrange(desc(mortality_rate))
+  arrange(desc(percent_death))
 
-View(mortality_chf)
+chf_summary
 ```
 
 
-Visualizing mortality proportions:
+Visualizing
 ```{r}
-chf_plot <- mortality_chf |>
-  mutate(
-    profile = paste(
-      smoking_group,
-      chf_group,
-      sep = " + "
-    )
-  ) |>
+chf_plot <- chf_summary |>
   ggplot(aes(
-    x = reorder(profile, mortality_rate),
-    y = mortality_rate
+    x = chf_group,
+    y = percent_death,
+    fill = smoking_group
   )) +
-  geom_col(fill = "steelblue") +
+  geom_col(position = "dodge", width = 0.7) +
   geom_text(
-    aes(label = paste0(
-      deaths, "/", patients,
-      " (", round(mortality_rate, 1), "%)"
-    )),
-    hjust = -0.1,
-    size = 3.5
+    aes(label = paste0(round(percent_death, 1), "%")),
+    position = position_dodge(width = 0.7),
+    vjust = -0.4,
+    size = 4
   ) +
-  coord_flip() +
+  scale_fill_manual(
+    values = c(
+      "No smoking exposure" = "steelblue",
+      "Smoking exposure" = "tomato"
+    )
+  ) +
   scale_y_continuous(
-    expand = expansion(mult = c(0, 0.35))
+    expand = expansion(mult = c(0, 0.15))
   ) +
   labs(
     title = "Mortality by smoking exposure and CHF",
-    x = "Patient characteristics",
-    y = "Mortality (%)"
+    x = "CHF status",
+    y = "Mortality (%)",
+    fill = "Smoking status"
   ) +
   theme_minimal()
 
 chf_plot
+
+ggsave(
+  "results/07_analysis_3/smoking_chf.png",
+  chf_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+We see that people who smoke and have CHF experience most of the deaths
+
+
+Diabetes and smoking combination:
+```{r}
+diabetes_summary <- profile_data |>
+  drop_na(smoking_group, diabetes_group, death) |>
+  group_by(smoking_group, diabetes_group) |>
+  summarise(
+    n = n(),
+    n_deaths = sum(death == 1),
+    percent_death = 100 * mean(death == 1),
+    .groups = "drop"
+  ) |>
+  arrange(desc(percent_death))
+
+diabetes_summary
 ```
 
-Statistical analysis:
-```{r}
-profile_data |>
-  mutate(
-    combination = paste(smoking_group, lung_group, sep = " + ")
-  ) |>
-  select(combination, death) |>
-  table() |>
-  chisq.test()
-```
-Chi-square test did not identify a statistically significant association between the four patient profiles and mortality
 
+Vizualizing:
 ```{r}
-profile_data |>
-  mutate(
-    combination = paste(smoking_group, chf_group, sep = " + ")
-  ) |>
-  select(combination, death) |>
-  table() |>
-  chisq.test()
+diabetes_plot <- diabetes_summary |>
+  ggplot(aes(
+    x = diabetes_group,
+    y = percent_death,
+    fill = smoking_group
+  )) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_text(
+    aes(label = paste0(round(percent_death, 1), "%")),
+    position = position_dodge(width = 0.7),
+    vjust = -0.4,
+    size = 4
+  ) +
+  scale_fill_manual(
+    values = c(
+      "No smoking exposure" = "steelblue",
+      "Smoking exposure" = "tomato"
+    )
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  labs(
+    title = "Mortality by smoking exposure and diabetes",
+    x = "Diabetes status",
+    y = "Mortality (%)",
+    fill = "Smoking status"
+  ) +
+  theme_minimal()
+
+diabetes_plot
+
+ggsave(
+  "results/07_analysis_3/smoking_diabetes.png",
+  diabetes_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
-CHF and smoking combination is statistically significant
+
+
+Combining graphs:
+```{r}
+
+combined_mortality_plot <- wrap_plots(
+  chf_plot,
+  diabetes_plot,
+  ncol = 2
+) +
+  plot_annotation(
+    title = "Smoking exposure and clinical conditions"
+  )
+
+combined_mortality_plot
+
+ggsave(
+  "results/07_analysis_3/combined_mortality_plot.png",
+  combined_mortality_plot,
+  width = 14,
+  height = 6,
+  dpi = 300
+)
+```
