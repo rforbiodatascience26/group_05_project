@@ -1,0 +1,189 @@
+---
+title: "04_describe"
+format: html
+---
+
+Library
+```{r}
+library("tidyverse")
+library("ggplot2")
+library("purrr")
+library("patchwork")
+```
+
+Load the clean and augmented data
+```{r}
+clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
+```
+
+Find binary variables and turn them into categorical
+```{r}
+clean_data <- clean_data |> 
+  mutate(
+    diabetes = factor(
+      diabetes,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  ) |> 
+  mutate(
+    chf = factor(
+      chf,
+      levels = c(0, 1),
+      labels = c("0", "1")
+    )
+  ) |> 
+  mutate(
+    death = factor(
+      death,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  )
+```
+
+
+Identify numeric and categorical columns
+```{r}
+numeric_cols <- clean_data |> 
+  select(where(is.numeric)) |> 
+  names()
+
+categorical_cols <- clean_data |> 
+  select(where(is.character) | where(is.factor)) |> 
+  names()
+```
+
+Histograms for numeric columns
+```{r}
+walk(numeric_cols, function(col) {
+  clean_data |> 
+    ggplot(aes(x = .data[[col]])) +
+    geom_histogram(
+      bins = 30,
+      fill = "steelblue",
+      color = "white"
+    ) +
+    labs(
+      title = paste("Distribution of", col),
+      x = col,
+      y = "Number of participants"
+    ) +
+    theme_minimal()
+  
+  ggsave(
+    filename = file.path("../results/04_describe/", paste0("hist_", col, ".png")),
+    width = 7,
+    height = 5
+  )
+})
+```
+
+
+Bar charts for categorical columns
+```{r}
+walk(categorical_cols, function(col) {
+  clean_data |> 
+    ggplot(aes(x = .data[[col]])) +
+    geom_bar(
+      fill = "steelblue",
+      color = "white"
+    ) +
+    labs(
+      title = paste("Distribution of", col),
+      x = col,
+      y = "Number of patients"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  ggsave(
+    filename = file.path("../results/04_describe/", paste0("bar_", col, ".png")),
+    width = 7,
+    height = 5
+  )
+})
+```
+
+Combine all numeric plots into one large figure
+```{r}
+plots <- numeric_cols |> 
+  map(function(col) {
+    ggplot(clean_data, aes(x = .data[[col]])) +
+      geom_histogram(
+        bins = 30,
+        fill = "steelblue",
+        color = "white"
+      ) +
+      labs(
+        title = col,
+        x = NULL,
+        y = "Count"
+      ) +
+      theme_minimal(base_size = 10)
+  })
+
+combined_plot <- wrap_plots(plots, ncol = 3) +
+  plot_annotation(
+    title = "Distributions of numeric variables",
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold")
+    )
+  )
+
+combined_plot
+
+ggsave(
+  "../results/04_describe/Numeric_variables_plot.png",
+  combined_plot,
+  width = 20,
+  height = 15,
+  dpi = 300
+)
+```
+
+Combine all categorical variables into one plot
+```{r}
+plots <- categorical_cols |> 
+  map(function(col) {
+    clean_data |> 
+      count(.data[[col]], name = "n") |> 
+      ggplot(aes(x = .data[[col]], y = n)) +
+      geom_col(
+        fill = "steelblue",
+        color = "white"
+      ) +
+      labs(
+        title = col,
+        x = NULL,
+        y = "Count"
+      ) +
+      theme_minimal(base_size = 10) +
+      theme(
+        axis.text.x = element_text(
+          angle = 45,
+          hjust = 1,
+          size = 8
+        )
+      )
+  })
+
+combined_plot <- wrap_plots(plots, ncol = 3) +
+  plot_annotation(
+    title = "Distributions of categorical variables",
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold")
+    )
+  )
+
+combined_plot
+
+ggsave(
+  "../results/04_describe/Character_variables_plot.png",
+  combined_plot,
+  width = 20,
+  height = 15,
+  dpi = 300
+)
+```
+
