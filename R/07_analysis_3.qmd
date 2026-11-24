@@ -1,8 +1,6 @@
 ---
 title: "07_analysis_3"
 format: html
-editor_options: 
-  chunk_output_type: console
 ---
 
 Goal - examine combinations of several characteristics within the same patients
@@ -46,41 +44,39 @@ categorical_cols <- categorical_data |>
 ```
 
 Calculating mortality percentage
+
 ```{r}
-mortality_summary <- categorical_cols |>
-  map(function(col) {
-    categorical_data |>
-      filter(!is.na(.data[[col]]), !is.na(death)) |>
-      group_by(category = .data[[col]]) |>
-      summarise(
-        n = n(),
-        n_deaths = sum(death == 1),
-        percent_death = 100 * mean(death == 1),
-        .groups = "drop"
-      ) |>
-      mutate(
-        variable = col,
-        category = as.character(category)
-      )
-  }) |>
-  bind_rows()
+mortality_summary <- categorical_data |>
+  select(death, sex, race, smoker, chf, diabetes) |>
+  mutate(across(-death, as.character)) |>
+  pivot_longer(
+    cols = -death, names_to = "variable", values_to = "category"
+  ) |>
+  drop_na(category, death) |>
+  group_by(variable, category) |>
+  summarise(
+    n = n(),
+    n_deaths = sum(death == 1),
+    percent_death = 100 * mean(death == 1),
+    .groups = "drop"
+  )
 
 mortality_summary
 ```
 
 Selecting top five characteristics
 ```{r}
-top5_mortality <- mortality_summary |>
+top5 <- mortality_summary |>
   filter(n >= 15) |>
   arrange(desc(percent_death)) |>
   slice_head(n = 5)
 
-view(top5_mortality)
+top5
 ```
 
 Visualizing
 ```{r}
-top5_plot <- top5_mortality |>
+top5_plot <- top5 |>
   mutate(
     characteristic = paste(variable, category, sep = ": ")
   ) |>
