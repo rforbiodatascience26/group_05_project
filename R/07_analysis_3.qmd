@@ -1,0 +1,355 @@
+---
+title: "07_analysis_3"
+format: html
+---
+
+Goal - examine combinations of several characteristics within the same patients and see if particular combinations have impact on deaths
+
+Library
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(broom)
+```
+
+Load clean data
+
+```{r}
+clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
+```
+
+Convert binary values into categorical
+
+```{r}
+categorical_data <- clean_data |>
+  mutate(
+    diabetes = factor(
+      diabetes,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    ),
+    chf = factor(
+      chf,
+      levels = c(0, 1),
+      labels = c("no", "yes")
+    )
+  )
+```
+
+Identify categorical variables
+
+```{r}
+categorical_cols <- categorical_data |>
+  select(where(is.character) | where(is.factor)) |>
+  names()
+```
+
+Calculating mortality percentage
+
+```{r}
+mortality_summary <- categorical_data |>
+  select(death, sex, race, smoker, chf, diabetes) |>
+  mutate(across(-death, as.character)) |>
+  pivot_longer(
+    cols = -death, names_to = "variable", values_to = "category"
+  ) |>
+  drop_na(category, death) |>
+  group_by(variable, category) |>
+  summarise(
+    n = n(),
+    n_deaths = sum(death == 1),
+    percent_death = 100 * mean(death == 1),
+    .groups = "drop"
+  )
+
+mortality_summary
+```
+
+Selecting top five characteristics
+
+```{r}
+top5 <- mortality_summary |>
+  filter(n >= 15) |>
+  arrange(desc(percent_death)) |>
+  slice_head(n = 5)
+
+top5
+```
+
+Visualizing
+
+```{r}
+top5_plot <- top5 |>
+  mutate(
+    characteristic = paste(variable, category, sep = ": ")
+  ) |>
+  ggplot(aes(
+    x = reorder(characteristic, percent_death),
+    y = percent_death
+  )) +
+  geom_col(fill = "steelblue", width = 0.6) +
+  geom_text(
+    aes(label = paste0(
+      round(percent_death, 1), "%"
+    )),
+    hjust = -0.2,
+    size = 4
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Top 5 characteristics by mortality",
+    x = NULL,
+    y = "Mortality (%)"
+  ) +
+  theme_minimal()
+
+top5_plot
+```
+
+As we see that smoking alone is not statistically significant cause of death but patients who smoke still experience high death rates. Maybe people who die from chf or diabetes also smoke and it works in combination?
+
+Preparing data
+
+```{r}
+profile_data <- clean_data |>
+  mutate(
+    smoking_group = if_else(
+      packyrs > 0,
+      "Smoking exposure",
+      "No smoking exposure"
+    ),
+    chf_group = if_else(
+      chf == 1,
+      "CHF",
+      "No CHF"
+    ),
+    diabetes_group = if_else(
+      diabetes == 1,
+      "Diabetes",
+      "No diabetes"
+    )
+  )
+```
+
+Combining smoking and CHF
+
+```{r}
+chf_summary <- profile_data |>
+  drop_na(smoking_group, chf_group, death) |>
+  group_by(smoking_group, chf_group) |>
+  summarise(
+    n = n(),
+    n_deaths = sum(death == 1),
+    percent_death = 100 * mean(death == 1),
+    .groups = "drop"
+  ) |>
+  arrange(desc(percent_death))
+
+chf_summary
+```
+
+Visualizing
+
+```{r}
+chf_plot <- chf_summary |>
+  ggplot(aes(
+    x = chf_group,
+    y = percent_death,
+    fill = smoking_group
+  )) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_text(
+    aes(label = paste0(round(percent_death, 1), "%")),
+    position = position_dodge(width = 0.7),
+    vjust = -0.4,
+    size = 4
+  ) +
+  scale_fill_manual(
+    values = c(
+      "No smoking exposure" = "steelblue",
+      "Smoking exposure" = "tomato"
+    )
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  labs(
+    title = "Mortality by smoking exposure and CHF",
+    x = "CHF status",
+    y = "Mortality (%)",
+    fill = "Smoking status"
+  ) +
+  theme_minimal()
+
+chf_plot
+
+ggsave(
+  "../results/07_analysis_3/smoking_chf.png",
+  chf_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+We see that people who smoke and have CHF experience most of the deaths
+
+Diabetes and smoking combination:
+
+```{r}
+diabetes_summary <- profile_data |>
+  drop_na(smoking_group, diabetes_group, death) |>
+  group_by(smoking_group, diabetes_group) |>
+  summarise(
+    n = n(),
+    n_deaths = sum(death == 1),
+    percent_death = 100 * mean(death == 1),
+    .groups = "drop"
+  ) |>
+  arrange(desc(percent_death))
+
+diabetes_summary
+```
+
+Visualizing:
+
+```{r}
+diabetes_plot <- diabetes_summary |>
+  ggplot(aes(
+    x = diabetes_group,
+    y = percent_death,
+    fill = smoking_group
+  )) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_text(
+    aes(label = paste0(round(percent_death, 1), "%")),
+    position = position_dodge(width = 0.7),
+    vjust = -0.4,
+    size = 4
+  ) +
+  scale_fill_manual(
+    values = c(
+      "No smoking exposure" = "steelblue",
+      "Smoking exposure" = "tomato"
+    )
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  labs(
+    title = "Mortality by smoking exposure and diabetes",
+    x = "Diabetes status",
+    y = "Mortality (%)",
+    fill = "Smoking status"
+  ) +
+  theme_minimal()
+
+diabetes_plot
+
+ggsave(
+  "../results/07_analysis_3/smoking_diabetes.png",
+  diabetes_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+Combining graphs:
+
+```{r}
+
+combined_mortality_plot <- wrap_plots(
+  chf_plot,
+  diabetes_plot,
+  ncol = 2
+) +
+  plot_annotation(
+    title = "Smoking exposure and clinical conditions"
+  )
+
+combined_mortality_plot
+
+ggsave(
+  "../results/07_analysis_3/combined_mortality_plot.png",
+  combined_mortality_plot,
+  width = 14,
+  height = 6,
+  dpi = 300
+)
+```
+
+Statistical tests for the combinations, using logistic regression: to test whether smoking exposure and CHF/ smoking exposure and diabetes show a statistically significant interaction or joint effect on death.
+
+Smoking + CHF combinations
+
+```{r}
+chf_four_group_data <- profile_data |>
+  drop_na(smoking_group, chf_group, death) |>
+  mutate(smoke_chf_combo = paste(smoking_group, chf_group, sep = " + ") |>
+      factor(levels = c(
+          "No smoking exposure + No CHF",
+          "Smoking exposure + No CHF",
+          "No smoking exposure + CHF",
+          "Smoking exposure + CHF")))
+
+chf_four_group_model <- glm(
+  formula = death ~ smoke_chf_combo,
+  data = chf_four_group_data,
+  family = binomial())
+
+chf_four_group_results <- tidy(
+  x = chf_four_group_model,
+  exponentiate = TRUE,
+  conf.int = TRUE)
+
+chf_four_group_results
+```
+
+Compared with the reference group of patients with neither smoking exposure nor CHF, having smoking exposure alone without CHF is not significantly associated with higher mortality odds. By contrast, mortality odds are significantly higher for patients with CHF alone and highest for those with both smoking exposure and CHF.
+
+The (Intercept) row gives the baseline odds of death for the healthiest reference group (No smoking exposure + No CHF).
+
+Smoking + diabetes combinations
+
+```{r}
+diab_four_group_data <- profile_data |>
+  drop_na(smoking_group, diabetes_group, death) |>
+  mutate(smoke_diab_combo = paste(smoking_group, diabetes_group, sep = " + ") |>
+      factor(levels = c(
+          "No smoking exposure + No diabetes",
+          "Smoking exposure + No diabetes",
+          "No smoking exposure + Diabetes",
+          "Smoking exposure + Diabetes")))
+
+diab_four_group_model <- glm(
+  formula = death ~ smoke_diab_combo,
+  data = diab_four_group_data,
+  family = binomial())
+
+diab_four_group_results <- tidy(
+  x = diab_four_group_model,
+  exponentiate = TRUE,
+  conf.int = TRUE)
+
+diab_four_group_results
+```
+
+Compared with the reference group of patients with neither smoking exposure nor diabetes, neither smoking exposure alone without diabetes or diabetes alone without smoking exposure shows a statistically significant difference in mortality odds. By contrast, patients with both smoking exposure and diabetes have significantly higher mortality odds.
+
+The (Intercept) row gives the baseline odds of death for that healthiest reference group (No smoking exposure + No diabetes).
+
+Save data
+
+```{r}
+write_tsv(x = chf_four_group_results,
+  file = "../results/07_analysis_3/smoking_chf_glm.tsv")
+
+write_tsv(x = diab_four_group_results,
+  file = "../results/07_analysis_3/smoking_diabetes_glm.tsv")
+```
