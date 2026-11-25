@@ -1,9 +1,12 @@
 ---
 title: "07_analysis_3"
 format: html
+editor_options: 
+  chunk_output_type: inline
 ---
 
-Goal - examine combinations of several characteristics within the same patients and see if particular combinations have impact on deaths
+Goal - examine combinations of several characteristics within the same patients
+and see if particular combinations have impact on deaths
 
 Library
 
@@ -111,7 +114,9 @@ top5_plot <- top5 |>
 top5_plot
 ```
 
-As we see that smoking alone is not statistically significant cause of death but patients who smoke still experience high death rates. Maybe people who die from chf or diabetes also smoke and it works in combination?
+As we see that smoking alone is not statistically significant cause of death
+but patients who smoke still experience high death rates. 
+Maybe people who die from chf or diabetes also smoke and it works in combination?
 
 Preparing data
 
