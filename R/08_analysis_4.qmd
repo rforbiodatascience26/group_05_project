@@ -1,0 +1,189 @@
+---
+title: "08_analysis_4"
+format: html
+editor: visual
+---
+
+*Question from gemini: How do systemic vascular and metabolic risk indicators—such as history of coronary heart disease, diabetes, and blood pressure—correlate with neurological markers of brain damage, specifically brain tissue atrophy and brain infarct volume? (delete later)*
+
+Load libraries
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+```
+
+Load the clean and augmented data
+
+```{r}
+clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
+```
+
+Create new subset `cor_data` with variables associated with cardiovascular and brain health
+
+```{r}
+cor_data <- clean_data |> 
+  select("atrophy", #brain
+         "numinf",  #brain
+         "stroke",  #brain
+         "volinf",  #brain
+         "whgrd",   #brain
+         "dsst",    #brain
+         "chf",     #cd
+         "chd",     #cd
+         "sbp",     #cd
+         "ldl",     #cd
+         "diabetes",#cd
+         "plt",     #cd
+         "aai",     #cd
+         )
+```
+
+Investigate the subset
+
+```{r}
+cor_data |> 
+  str() 
+```
+
+Prepare the dataset for correlation analysis: The variables `stroke` and `chd` are ordinal, including 3 categories (0,1,2). We create dummy variables, splitting the initial variables into 2 new ones
+
+-stroke -\> stroke_tia (tia: transient ischemic attack), stroke_event
+
+-chd -\> chd-angina, chd_mi (mi: myocardial infarction) (abbreviations from rigr package documentation)
+
+*(use of AI assistance)*
+
+```{r}
+cor_data <- cor_data |>
+  # create the dummy variables
+  mutate(stroke_tia = as.numeric(stroke == 1),
+         stroke_event = as.numeric(stroke == 2),
+         chd_angina = as.numeric(chd == 1),
+         chd_mi = as.numeric(chd == 2)) |>
+  # remove the initial variables from the subset
+  select(-stroke,
+       -chd)
+```
+
+Check normality of variables to choose the correlation method.
+
+```{r}
+shapiro.test(cor_data$atrophy)
+shapiro.test(cor_data$numinf)
+shapiro.test(cor_data$volinf)
+shapiro.test(cor_data$whgrd)
+shapiro.test(cor_data$dsst)
+shapiro.test(cor_data$chf)
+shapiro.test(cor_data$sbp)
+shapiro.test(cor_data$ldl)
+shapiro.test(cor_data$diabetes)
+shapiro.test(cor_data$plt)
+shapiro.test(cor_data$aai)
+shapiro.test(cor_data$stroke_tia)
+shapiro.test(cor_data$stroke_event)
+shapiro.test(cor_data$chd_angina)
+shapiro.test(cor_data$chd_mi)
+```
+
+The variables are classified as binary, ordinal, discrete or continuous. Since the majority of them are not normally distributed (p-value\<0.5), we choose the Spearman correlation method.
+
+Study the correlation between the variables associated with brain and cardiovascular health
+
+```{r}
+# create 2 vectors for each set of variables
+brain_vars <- c("dsst",
+                "atrophy",
+                "whgrd",
+                "numinf",
+                "volinf",
+                "stroke_tia",
+                "stroke_event")
+cardio_vars <- c("sbp",
+                 "ldl",
+                 "aai",
+                 "chf",
+                 "diabetes",
+                 "chd_angina",
+                 "chd_mi",
+                 "plt")
+
+# correlation analysis
+cor_matrix <- cor(cor_data[brain_vars],
+                  cor_data[cardio_vars],
+                  method = "spearman")
+```
+
+Tidy the data frame before visualisation
+
+```{r}
+cor_tbl <- cor_matrix |>
+  # convert to tibble
+as_tibble() |> 
+  # keep first column of rownames - refer to brain variables
+rownames_to_column(var = "Brain") |> 
+  # change the names of the Brain column to match the brain variable names
+ mutate(Brain = case_match(Brain,
+                            "1" ~ "dsst",
+                            "2" ~ "atrophy",
+                            "3" ~ "whgrd",
+                            "4" ~ "numinf",
+                            "5" ~ "volinf",
+                            "6" ~ "stroke_tia",
+                            "7" ~ "stroke_event")) |> 
+  # new data frame of 3 columns 
+  pivot_longer(cols = -1,
+               names_to = "Cardiovascular",
+               values_to = "Correlation")
+```
+
+Create a heatmap to visualize the results from the correlation matrix
+
+```{r}
+cor_plot <- cor_tbl |> 
+  ggplot(aes(x = Brain,
+             y = Cardiovascular,
+             fill = Correlation)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_gradient2(low = "darkolivegreen",
+                       mid = "white",
+                       high = "darkmagenta",
+                       midpoint = 0,
+                       limits = c(-0.35,0.35)) +
+  labs(title = "Correlation between brain and cardiovascular variables",
+       x = "Brain variables",
+       y = "Cardiovascular variables",
+       fill = "Spearman correlation",
+       caption = "Note: Color scale limited to [-0.35, 0.35] to improve visual contrast.")+
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+cor_plot
+
+ggsave(
+  "../results/08_analysis_4/correlation_plot.png",
+  cor_plot,
+  width = 20,
+  height = 15,
+  dpi = 300
+)
+```
+
+In general, the correlations between the 2 sets of variables are weak, as the correlation values are not close to 1 (stronger correlation). The strongest correlation in this analysis, is between the `dsst` variable (Digit Symbol Substitution Test score) and the `aai` (Ankle Brachial Index). More specifically, Ankle Brachial Index reflects overall vascular health and blood flow, while the Digit Symbol Substitution score is a neurophychological test used to assess cognitive performance. Therefore, a higher aai (within the normal range) indicates better circulation which helps maintain healthy blood flow to the brain and supports faster cognitive processing on the dsst. This connection between blood flow and brain function explains why the two variables show a weak positive correlation, although other factors such as age might influence the result. In contrast, `plt` and `ldl` show no correlation with any of the brain variables.
+
+Next, we will focus on other variables that show weak positive correlations in the heatmap, to test their p-values and check whether these correlations are statistically reliable.
+
+Variables: `sbp`, `chd_mi`, `atrophy`, `volinf`
+
+```{r}
+# correlation test to check p-values
+# exact = FALSE : calculate an approximate p-value when the values of variables are identical
+p1 <- cor.test(cor_data$sbp, cor_data$atrophy, method = "spearman", exact = FALSE)$p.value
+p2 <- cor.test(cor_data$sbp, cor_data$volinf, method = "spearman", exact = FALSE)$p.value
+p3 <- cor.test(cor_data$chd_mi, cor_data$atrophy, method = "spearman", exact = FALSE)$p.value
+p4 <- cor.test(cor_data$chd_mi, cor_data$volinf, method = "spearman", exact = FALSE)$p.value
+
+p.adjust(c(p1,p2,p3,p4))
+```
+
+The associations between `sbp` and `chd_mi` with `volinf` are statistically significant as their p-values are below 0.05. These results make biological sense, as higher blood pressure can damage the blood vessels of the brain. Furthermore, myocardial infarction increases the risk of clots which can lead to brain infracts. However, the correlations are weak and the data are observational, so they show an association but not causation.
