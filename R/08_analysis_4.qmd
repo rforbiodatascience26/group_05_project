@@ -163,8 +163,8 @@ cor_plot
 ggsave(
   "../results/08_analysis_4/correlation_plot.png",
   cor_plot,
-  width = 10,
-  height = 8,
+  width = 4,
+  height = 6,
   dpi = 300
 )
 ```
