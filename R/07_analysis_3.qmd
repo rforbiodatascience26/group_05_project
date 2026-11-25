@@ -311,6 +311,10 @@ chf_four_group_results <- tidy(
 chf_four_group_results
 ```
 
+Compared with the reference group of patients with neither smoking exposure nor CHF, having smoking exposure alone without CHF is not significantly associated with higher mortality odds. By contrast, mortality odds are significantly higher for patients with CHF alone and highest for those with both smoking exposure and CHF.
+
+The (Intercept) row gives the baseline odds of death for the healthiest reference group (No smoking exposure + No CHF).
+
 Smoking + diabetes combinations
 
 ```{r}
@@ -335,6 +339,10 @@ diab_four_group_results <- tidy(
 
 diab_four_group_results
 ```
+
+Compared with the reference group of patients with neither smoking exposure nor diabetes, neither smoking exposure alone without diabetes or diabetes alone without smoking exposure shows a statistically significant difference in mortality odds. By contrast, patients with both smoking exposure and diabetes have significantly higher mortality odds.
+
+The (Intercept) row gives the baseline odds of death for that healthiest reference group (No smoking exposure + No diabetes).
 
 Save data
 
