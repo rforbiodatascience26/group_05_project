@@ -7,7 +7,7 @@ Library
 ```{r}
 library("tidyverse")
 library("ggplot2")
-library("patchwork")
+library("broom")
 ```
 
 Load the clean and augmented data
@@ -16,32 +16,72 @@ clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
 ```
 
 Prepare the data for PCA.
-'obstime' is removed: it is the time to death, so it would leak the outcome.
+'obstime' is removed: it is the time the patient is observed until death 
+or the end of the study (No Death case).
+
 'volinf' is highly skewed, so it is log-transformed.
-Categorical variables become dummy variables.
+
+Categorical variables become dummy variables 
+(reference levels: female, ever smoked (current or former); race has one dummy per level, so the three race dummies are redundant: this does not affect the first PCs).
 ```{r}
 x_data <- clean_data |>
   select(-obstime) |>
+  mutate(
+    volinf = log1p(volinf),
+    sexMale = if_else(sex == "Male", 1, 0),
+    raceBlack = if_else(race == "Black", 1, 0),
+    raceWhite = if_else(race == "White", 1, 0),
+    raceAsian = if_else(race == "Asian", 1, 0),
+    smokernever = if_else(smoker == "never", 1, 0)
+  ) |>
+  select(-sex, -race, -smoker)
+
+# Here I'm including ggplot() in the pipeline
+
+plot_raw <- clean_data |>
+  filter(volinf > 0) |>
+  ggplot(aes(x = volinf)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Raw volinf (only volinf > 0)") +
+  theme_minimal(base_size = 11)
+
+plot_log <- clean_data |>
   mutate(volinf = log1p(volinf)) |>
-  model.matrix(death ~ ., data = _) |>
-  as_tibble() |>
-  select(-`(Intercept)`) |>
-  mutate(death = clean_data$death)
+  filter(volinf > 0) |>
+  ggplot(aes(x = volinf)) +
+  geom_histogram(bins = 30) +
+  labs(title = "log1p(volinf) (only volinf > 0)") +
+  theme_minimal(base_size = 11)
+
+p_raw + p_log
 ```
 
-PCA on all patients (death is only used to colour the points)
+PCA on all patients (death is only used to colour the points).
+The sign of a PC only shows the direction relative to the PC.
+We only print out PC1 and PC2 since prcomp() orders PC values by descending 
+variance, so the first 2 are the ones we have to use in the plot (the others
+show less variance and the last ones are basically noise.)
 ```{r}
 pca_all <- x_data |>
   select(-death) |>
   prcomp(center = TRUE, scale. = TRUE)
 
-scores_all <- pca_all$x |>
-  as_tibble() |>
-  mutate(death = factor(x_data$death, levels = c(0, 1), 
-                        labels = c("No death", "Death")))
+pca_all |>
+  tidy(matrix = "eigenvalues") |>
+  slice_head(n = 5)
 
-pca_plot <- scores_all |>
-  ggplot(aes(x = PC1, y = PC2, colour = death)) +
+pca_all |>
+  tidy(matrix = "rotation") |>
+  filter(PC <= 2) |> # prcomp orders PC values from highest variance to lowest
+  pivot_wider(names_from = PC, names_prefix = "PC", values_from = value) |>
+  rename(variable = column) |>
+  arrange(desc(abs(PC2))) |>
+  print(n = 29) # printing them all
+
+pca_plot <- pca_all |>
+  augment(x_data) |> # .fitted is needed to avoid confusion between var names!
+  mutate(death = if_else(death == 1, "Death", "No death")) |>
+  ggplot(aes(x = .fittedPC1, y = .fittedPC2, colour = death)) +
   geom_point(alpha = 0.6) +
   stat_ellipse() +
   scale_colour_manual(values = c("No death" = "steelblue", "Death" = "tomato")) +
@@ -58,143 +98,114 @@ ggsave(
   dpi = 300
 )
 ```
+Now that we have all the PCs we run augment again to attach each PC to x_data.
+We then transform the table to a long one which has only death PC and score; now
+it's possible to group by PC and compute the AUC  (via rank formula).
 
-Which PCs separate deceased from alive patients? (Wilcoxon test)
+Doing so enables us to look at which PC has the best AUC and so the one that
+separates better deceased patients from alive ones.
+
+The sign of a PC is arbitrary: prcomp may point the axis in either direction, 
+and flipping it changes nothing except which end is "high". If the axis points
+the wrong way, deceased patients get lower scores and the AUC comes out as 
+1 - AUC. 
+So we keep the larger of the two values (pmax): an AUC of 0.25 means the PC 
+separates well, just reversed.
+
+In the end, variance is plotted near the AUC, so it's possible to visualize 
+whichPC actually differentiates best the deceased patients from alive ones.
 ```{r}
-map_dbl(paste0("PC", 1:10), ~ wilcox.test(scores_all[[.x]] ~ scores_all$death)$p.value) |>
-  set_names(paste0("PC", 1:10)) |>
-  signif(2)
-```
+pc_auc <- pca_all |>
+  augment(x_data) |>
+  select(death, starts_with(".fittedPC")) |>
+  pivot_longer(
+    -death,
+    names_to = "PC",
+    names_prefix = ".fittedPC",
+    names_transform = as.numeric,
+    values_to = "score"
+  ) |>
+  group_by(PC) |>
+  summarise(
+    n1 = sum(death),
+    n0 = n() - n1,
+    auc = (sum(rank(score) * death) - n1 * (n1 + 1) / 2) / (n1 * n0)
+  ) |>
+  mutate(auc = pmax(auc, 1 - auc))
 
-PCA on deceased patients only and on alive patients only: 
-loadings of PC1 and PC2.
-Each arrow is one variable (only the 12 with the longest arrows are shown): 
-the direction shows what it contributes to, the length shows how much.
-Variables with arrows pointing the same way go up and down together.
-```{r}
-plots <- c(1, 0) |> 
-  map(function(group) {
-    x_data |> 
-      filter(death == group) |> 
-      select(-death) |> 
-      select(where(~ sd(.x) > 0)) |> 
-      prcomp(center = TRUE, scale. = TRUE) |> 
-      pluck("rotation") |> 
-      as_tibble(rownames = "variable") |> 
-      slice_max(PC1^2 + PC2^2, n = 12) |> 
-      ggplot(aes(x = PC1, y = PC2, label = variable)) +
-      geom_hline(yintercept = 0, colour = "grey70") +
-      geom_vline(xintercept = 0, colour = "grey70") +
-      geom_segment(
-        aes(x = 0, y = 0, xend = PC1, yend = PC2),
-        arrow = arrow(length = unit(0.15, "cm")),
-        colour = "steelblue"
-      ) +
-      geom_text(size = 3, vjust = -0.5, check_overlap = TRUE) +
-      labs(title = ifelse(group == 1, "Deceased", "Alive")) +
-      theme_minimal(base_size = 11)
-  })
+pc_summary <- pca_all |>
+  tidy(matrix = "eigenvalues") |>
+  select(PC, percent) |>
+  left_join(pc_auc, by = "PC")
 
-combined_plot <- wrap_plots(plots, ncol = 2) +
-  plot_annotation(title = "PCA loadings: deceased vs alive patients")
-
-combined_plot
-
-ggsave(
-  "../results/06_analysis_2/pca_loadings_deceased_vs_alive.png",
-  combined_plot,
-  width = 20,
-  height = 15,
-  dpi = 300
-)
-```
-
-Top variables: standardized mean difference between deceased and alive
-```{r}
-smd_table <- x_data |>
-  pivot_longer(-death, names_to = "variable", values_to = "value") |>
-  group_by(variable) |>
-  summarise(smd = (mean(value[death == 1]) - mean(value[death == 0])) / sd(value)) |>
-  arrange(desc(abs(smd)))
-
-smd_plot <- smd_table |>
-  slice_head(n = 15) |>
-  ggplot(aes(x = smd, y = reorder(variable, abs(smd)), fill = smd > 0)) +
-  geom_col(width = 0.6) +
-  scale_fill_manual(values = c("TRUE" = "tomato", "FALSE" = "steelblue")
-                    , guide = "none") +
-  labs(title = "Top 15 variables: deceased - alive (SMD)", 
-       x = "SMD",
-       y = NULL) +
+p_var <- pc_summary |>
+  ggplot(aes(x = PC, y = percent * 100)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Variance explained by each PC", x = NULL, y = "Variance (%)") +
   theme_minimal(base_size = 11)
 
-smd_plot
+p_auc <- pc_summary |>
+  ggplot(aes(x = PC, y = auc)) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", colour = "grey50") +
+  geom_point(colour = "tomato", size = 2) +
+  labs(title = "How well each PC separates deceased from alive", x = "PC", y = "AUC") +
+  theme_minimal(base_size = 11)
 
-ggsave(
-  "../results/06_analysis_2/smd_top_variables.png",
-  smd_plot,
-  width = 20,
-  height = 15,
-  dpi = 300
-)
+p_var / p_auc
 ```
+Now, it's time to see how variables actually contribute towards death, and
+how they weigh on PC1 and PC2.
 
-Classification: stratified train / test split (70 / 30)
+We use absolute values for two reasons: the sign of a PC is arbitrary 
+(see description above, for PC signs), 
+so the sign of a loading carries no meaning; and for the correlation we are
+interested in how strong the link with death is, not in its direction.
+
+Looking at the plot, we can determine which variable is well represented
+by PCA but isn't very significant for death, and which is poorly recognized
+but may be useful.
 ```{r}
-set.seed(2026)
+contrib <- pca_all |>
+  tidy(matrix = "rotation") |>
+  filter(PC <= 2) |>
+  group_by(column) |>
+  summarise(contribution = sum(abs(value)))
 
-train_idx <- x_data |>
-  mutate(row = row_number()) |>
-  group_by(death) |>
-  slice_sample(prop = 0.7) |>
-  pull(row)
+assoc <- x_data |>
+  pivot_longer(-death, names_to = "coloumn", values_to = "value") |>
+  group_by(coloumn) |>
+  summarise(r_death = abs(cor(value, death)))
 
-train_data <- x_data[train_idx, ]
-test_data <- x_data[-train_idx, ]
+contr_plot <- contrib |>
+  left_join(association, by = "column") |>
+  ggplot(aes(x = contribution, y = r_death, label = column)) +
+  geom_point(colour = "steelblue") +
+  geom_text(size = 3, vjust = -0.6) +
+  labs(
+    title = "Contribution to PC1 and PC2 vs association with death",
+    x = "Contribution to PC1 and PC2 (sum of absolute loadings)",
+    y = "Association with death (absolute correlation)"
+  ) +
+  theme_minimal(base_size = 11)
+
+variable_plot
 ```
+The variables most associated with death (dsst, stroke, aai, volinf) 
+are well captured by PC2.
 
-Logistic regression on the first 10 PCs (PCA fitted on the training set only) and on all the variables
-```{r}
-pca_train <- train_data |> select(-death) |> 
-  prcomp(center = TRUE, scale. = TRUE)
+PCA was used as an exploratory step: with 29 correlated variables and only 
+110 deaths (16.3%), we first wanted to see how the data are structured without 
+any influence from the outcome. PC1 (11.8% of the variance) mostly reflects body
+size, sex and smoking history and is only weakly related to death 
+(AUC about 0.59). PC2 (9.5%) reflects age, stroke, vascular and cognitive damage
+and is the only component clearly related to death (AUC about 0.75). 
+So the dominant structure of the data is not the one related to death. 
+Variables such as chf, chd and diabetes are associated with death about 
+as strongly as sex or fev, but are poorly represented by PC1 and PC2.
 
-train_pcs <- as_tibble(pca_train$x[, 1:10]) |> 
-  mutate(death = train_data$death)
-
-test_pcs <- as_tibble(predict(pca_train, select(test_data, -death))[, 1:10])
-
-fit_pca <- glm(death ~ ., data = train_pcs, family = binomial)
-fit_full <- glm(death ~ ., data = train_data, family = binomial)
-
-pred_pca <- predict(fit_pca, newdata = test_pcs, type = "response")
-pred_full <- predict(fit_full, newdata = test_data, type = "response")
-```
-
-AUC and confusion matrix on the test set.
-The death rate is ~16%, so the threshold is 
-the training death rate instead of 0.5.
-```{r}
-get_auc <- function(pred, truth) {
-  n1 <- sum(truth == 1)
-  (sum(rank(pred)[truth == 1]) - n1 * (n1 + 1) / 2) / (n1 * sum(truth == 0))
-}
-
-threshold <- mean(train_data$death)
-
-get_auc(pred_pca, test_data$death)
-get_auc(pred_full, test_data$death)
-
-table(predicted = pred_pca >= threshold, observed = test_data$death)
-table(predicted = pred_full >= threshold, observed = test_data$death)
-```
-
-Variables with the strongest effect in the full model 
-(standardized coefficients would be needed to compare them directly, 
-so we look at the z value)
-```{r}
-summary(fit_full)$coefficients |>
-  as_tibble(rownames = "variable") |>
-  filter(variable != "(Intercept)") |>
-  arrange(desc(abs(`z value`))) |>
-  slice_head(n = 10)
-```
+We did not train a classifier. With 110 events, a train/test split leaves only 
+about 33 deaths for testing, so any performance estimate would be very unstable.
+Moreover, the question of which characteristics matter for death is a supervised
+one, and PCA, which ignores the outcome, cannot answer it. The AUC values 
+reported here are computed on all patients and are therefore exploratory, not
+validated.
