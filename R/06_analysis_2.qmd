@@ -4,6 +4,7 @@ format: html
 ---
 
 Library
+
 ```{r}
 library("tidyverse")
 library("ggplot2")
@@ -11,18 +12,17 @@ library("broom")
 ```
 
 Load the clean and augmented data
+
 ```{r}
 clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
 ```
 
-Prepare the data for PCA.
-'obstime' is removed: it is the time the patient is observed until death 
-or the end of the study (No Death case).
+Prepare the data for PCA. 'obstime' is removed: it is the time the patient is observed until death or the end of the study (No Death case).
 
 'volinf' is highly skewed, so it is log-transformed.
 
-Categorical variables become dummy variables 
-(reference levels: female, ever smoked (current or former); race has one dummy per level, so the three race dummies are redundant: this does not affect the first PCs).
+Categorical variables become dummy variables (reference levels: female, ever smoked (current or former); race has one dummy per level, so the three race dummies are redundant: this does not affect the first PCs).
+
 ```{r}
 x_data <- clean_data |>
   select(-obstime) |>
@@ -53,14 +53,11 @@ plot_log <- clean_data |>
   labs(title = "log1p(volinf) (only volinf > 0)") +
   theme_minimal(base_size = 11)
 
-p_raw + p_log
+plot_raw + plot_log
 ```
 
-PCA on all patients (death is only used to colour the points).
-The sign of a PC only shows the direction relative to the PC.
-We only print out PC1 and PC2 since prcomp() orders PC values by descending 
-variance, so the first 2 are the ones we have to use in the plot (the others
-show less variance and the last ones are basically noise.)
+PCA on all patients (death is only used to colour the points). The sign of a PC only shows the direction relative to the PC. We only print out PC1 and PC2 since prcomp() orders PC values by descending variance, so the first 2 are the ones we have to use in the plot (the others show less variance and the last ones are basically noise.)
+
 ```{r}
 pca_all <- x_data |>
   select(-death) |>
@@ -98,22 +95,15 @@ ggsave(
   dpi = 300
 )
 ```
-Now that we have all the PCs we run augment again to attach each PC to x_data.
-We then transform the table to a long one which has only death PC and score; now
-it's possible to group by PC and compute the AUC  (via rank formula).
 
-Doing so enables us to look at which PC has the best AUC and so the one that
-separates better deceased patients from alive ones.
+Now that we have all the PCs we run augment again to attach each PC to x_data. We then transform the table to a long one which has only death PC and score; now it's possible to group by PC and compute the AUC (via rank formula).
 
-The sign of a PC is arbitrary: prcomp may point the axis in either direction, 
-and flipping it changes nothing except which end is "high". If the axis points
-the wrong way, deceased patients get lower scores and the AUC comes out as 
-1 - AUC. 
-So we keep the larger of the two values (pmax): an AUC of 0.25 means the PC 
-separates well, just reversed.
+Doing so enables us to look at which PC has the best AUC and so the one that separates better deceased patients from alive ones.
 
-In the end, variance is plotted near the AUC, so it's possible to visualize 
-whichPC actually differentiates best the deceased patients from alive ones.
+The sign of a PC is arbitrary: prcomp may point the axis in either direction, and flipping it changes nothing except which end is "high". If the axis points the wrong way, deceased patients get lower scores and the AUC comes out as 1 - AUC. So we keep the larger of the two values (pmax): an AUC of 0.25 means the PC separates well, just reversed.
+
+In the end, variance is plotted near the AUC, so it's possible to visualize whichPC actually differentiates best the deceased patients from alive ones.
+
 ```{r}
 pc_auc <- pca_all |>
   augment(x_data) |>
@@ -153,17 +143,13 @@ p_auc <- pc_summary |>
 
 p_var / p_auc
 ```
-Now, it's time to see how variables actually contribute towards death, and
-how they weigh on PC1 and PC2.
 
-We use absolute values for two reasons: the sign of a PC is arbitrary 
-(see description above, for PC signs), 
-so the sign of a loading carries no meaning; and for the correlation we are
-interested in how strong the link with death is, not in its direction.
+Now, it's time to see how variables actually contribute towards death, and how they weigh on PC1 and PC2.
 
-Looking at the plot, we can determine which variable is well represented
-by PCA but isn't very significant for death, and which is poorly recognized
-but may be useful.
+We use absolute values for two reasons: the sign of a PC is arbitrary (see description above, for PC signs), so the sign of a loading carries no meaning; and for the correlation we are interested in how strong the link with death is, not in its direction.
+
+Looking at the plot, we can determine which variable is well represented by PCA but isn't very significant for death, and which is poorly recognized but may be useful.
+
 ```{r}
 contrib <- pca_all |>
   tidy(matrix = "rotation") |>
@@ -190,22 +176,9 @@ contr_plot <- contrib |>
 
 variable_plot
 ```
-The variables most associated with death (dsst, stroke, aai, volinf) 
-are well captured by PC2.
 
-PCA was used as an exploratory step: with 29 correlated variables and only 
-110 deaths (16.3%), we first wanted to see how the data are structured without 
-any influence from the outcome. PC1 (11.8% of the variance) mostly reflects body
-size, sex and smoking history and is only weakly related to death 
-(AUC about 0.59). PC2 (9.5%) reflects age, stroke, vascular and cognitive damage
-and is the only component clearly related to death (AUC about 0.75). 
-So the dominant structure of the data is not the one related to death. 
-Variables such as chf, chd and diabetes are associated with death about 
-as strongly as sex or fev, but are poorly represented by PC1 and PC2.
+The variables most associated with death (dsst, stroke, aai, volinf) are well captured by PC2.
 
-We did not train a classifier. With 110 events, a train/test split leaves only 
-about 33 deaths for testing, so any performance estimate would be very unstable.
-Moreover, the question of which characteristics matter for death is a supervised
-one, and PCA, which ignores the outcome, cannot answer it. The AUC values 
-reported here are computed on all patients and are therefore exploratory, not
-validated.
+PCA was used as an exploratory step: with 29 correlated variables and only 110 deaths (16.3%), we first wanted to see how the data are structured without any influence from the outcome. PC1 (11.8% of the variance) mostly reflects body size, sex and smoking history and is only weakly related to death (AUC about 0.59). PC2 (9.5%) reflects age, stroke, vascular and cognitive damage and is the only component clearly related to death (AUC about 0.75). So the dominant structure of the data is not the one related to death. Variables such as chf, chd and diabetes are associated with death about as strongly as sex or fev, but are poorly represented by PC1 and PC2.
+
+We did not train a classifier. With 110 events, a train/test split leaves only about 33 deaths for testing, so any performance estimate would be very unstable. Moreover, the question of which characteristics matter for death is a supervised one, and PCA, which ignores the outcome, cannot answer it. The AUC values reported here are computed on all patients and are therefore exploratory, not validated.
