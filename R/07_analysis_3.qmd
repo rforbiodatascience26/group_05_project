@@ -67,7 +67,7 @@ mortality_summary <- categorical_data |>
     .groups = "drop"
   )
 
-mortality_summary
+view(mortality_summary)
 ```
 
 Selecting top five characteristics
