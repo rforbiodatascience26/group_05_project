@@ -5,14 +5,12 @@ editor_options:
   chunk_output_type: inline
 ---
 
-Goal - examine combinations of several characteristics within the same patients
-and see if particular combinations have impact on deaths
+Following the PCA analysis, which suggested that some clinically relevant variables were not strongly represented by the main principal components, this analysis aimed to investigate the relationship between lifestyle factors, preexisting illnesses and mortality. How are lifestyle factors and pre-existing illnesses, individually and in combination, associated with mortality among patients?
 
-Library
+Loading library
 
 ```{r}
 library(tidyverse)
-library(ggplot2)
 library(patchwork)
 library(broom)
 ```
@@ -23,79 +21,144 @@ Load clean data
 clean_data <- read_tsv(file = "../data/03_dat_aug.tsv", show_col_types = FALSE)
 ```
 
-Convert binary values into categorical
-
 ```{r}
-categorical_data <- clean_data |>
-  mutate(
-    diabetes = factor(
-      diabetes,
-      levels = c(0, 1),
-      labels = c("no", "yes")
-    ),
-    chf = factor(
-      chf,
-      levels = c(0, 1),
-      labels = c("no", "yes")
-    )
-  )
+view(clean_data)
 ```
 
-Identify categorical variables
+Preparing lifestyle and illness variables (death, smoking, alcohol consumption, physical activity, coronary hear disease, congestive heart failure, stroke, diabetes)
 
 ```{r}
-categorical_cols <- categorical_data |>
-  select(where(is.character) | where(is.factor)) |>
-  names()
+lifestyle_data <- clean_data |> 
+  select(death, smoker, alcoh, physact,
+         chf, chd, diabetes) |> 
+  mutate(
+    smoker = case_when(
+      smoker == "never" ~ "Never smoked",
+      smoker == "current" | smoker == "former" ~ "Smoked"
+    ),
+    alcoh = if_else(
+      alcoh > 0,
+      "Consumed alcohol",
+      "Did not consume alcohol"
+    ),
+    physact = if_else(
+      physact > 0,
+      "Physically active",
+      "Physically inactive"
+    ),
+    chf = if_else(chf == 1, "Congestive Heart Failure (CHF)", "No CHF"),
+    diabetes = if_else(diabetes == 1,
+                       "Diabetes", "No diabetes"),
+    chd = if_else(chd > 0, "Coronary heart disease (CHD)", "No CHD")
+  )
+
+view(lifestyle_data)
+```
+
+Checking if we have na values in lifestyle data
+
+```{r}
+
+colSums(is.na(lifestyle_data))
 ```
 
 Calculating mortality percentage
 
 ```{r}
-mortality_summary <- categorical_data |>
-  select(death, sex, race, smoker, chf, diabetes) |>
-  mutate(across(-death, as.character)) |>
+mortality_summary <- lifestyle_data |>
   pivot_longer(
-    cols = -death, names_to = "variable", values_to = "category"
-  ) |>
-  drop_na(category, death) |>
-  group_by(variable, category) |>
+    cols = -death,
+    names_to = "variable",
+    values_to = "category"
+  ) |> 
+  group_by(variable, category) |> 
   summarise(
-    n = n(),
-    n_deaths = sum(death == 1),
-    percent_death = 100 * mean(death == 1),
+    total_patients = n(),
+    number_deaths = sum(death == 1),
+    percentage_death = number_deaths / total_patients * 100,
     .groups = "drop"
   )
 
 view(mortality_summary)
 ```
 
+Visualizing all characteristics by mortality percentage
+
+```{r}
+plot <- mortality_summary |>
+  mutate(
+    characteristic = paste(category)
+  ) |>
+  ggplot(aes(
+    x = reorder(category, percentage_death),
+    y = percentage_death
+  )) +
+  geom_col(aes(fill = category == "Congestive Heart Failure (CHF)" | category == "Diabetes"),
+         width = 0.6) +
+scale_fill_manual(
+  values = c("TRUE" = "firebrick", "FALSE" = "steelblue"),
+  guide = "none"
+) +
+  geom_text(
+    aes(label = paste0(
+      round(percentage_death, 1), "%"
+    )),
+    hjust = -0.2,
+    size = 4
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Characteristics by mortality",
+    x = NULL,
+    y = "Mortality (%)"
+  ) +
+  theme_minimal()
+
+plot
+
+ggsave(
+  "../results/07_analysis_3/characteristics_plot.png",
+  plot,
+  width = 14,
+  height = 6,
+  dpi = 300
+)
+```
+
 Selecting top five characteristics
 
 ```{r}
-top5 <- mortality_summary |>
-  filter(n >= 15) |>
-  arrange(desc(percent_death)) |>
+top5_characteristics <- mortality_summary |>
+  filter(total_patients >= 15) |>
+  arrange(desc(percentage_death)) |>
   slice_head(n = 5)
 
-top5
+top5_characteristics
 ```
 
 Visualizing
 
 ```{r}
-top5_plot <- top5 |>
+top5_plot <- top5_characteristics |>
   mutate(
-    characteristic = paste(variable, category, sep = ": ")
+    characteristic = paste(category)
   ) |>
   ggplot(aes(
-    x = reorder(characteristic, percent_death),
-    y = percent_death
+    x = reorder(category, percentage_death),
+    y = percentage_death
   )) +
-  geom_col(fill = "steelblue", width = 0.6) +
+  geom_col(aes(fill = variable == "chf" | variable == "diabetes"),
+         width = 0.6) +
+scale_fill_manual(
+  values = c("TRUE" = "firebrick", "FALSE" = "steelblue"),
+  guide = "none"
+) +
   geom_text(
     aes(label = paste0(
-      round(percent_death, 1), "%"
+      round(percentage_death, 1), "%"
     )),
     hjust = -0.2,
     size = 4
@@ -112,89 +175,78 @@ top5_plot <- top5 |>
   theme_minimal()
 
 top5_plot
+
+ggsave(
+  "../results/07_analysis_3/top5_plot.png",
+  top5_plot,
+  width = 14,
+  height = 6,
+  dpi = 300
+)
 ```
 
-As we see that smoking alone is not statistically significant cause of death
-but patients who smoke still experience high death rates. 
-Maybe people who die from chf or diabetes also smoke and it works in combination?
+Patients with CHF and diabetes showed high observed mortality percentages of 40% and 31.8%, respectively. Although smoking alone was not previously found to be statistically significantly associated with mortality, investigating lifestyle characteristics alongside pre-existing illnesses may reveal additional mortality patterns. From a biological perspective, smoking and physical inactivity may contribute to cardiovascular complications and impaired metabolic regulation. However, small patient groups and potential confounding factors, such as age and sex, limit the interpretation of these findings.
 
-Preparing data
+Is the combination of pre-existing illnesses and lifestyle factors (smoking and diabetes) is associated with higher mortality?
 
-```{r}
-profile_data <- clean_data |>
-  mutate(
-    smoking_group = if_else(
-      packyrs > 0,
-      "Smoking exposure",
-      "No smoking exposure"
-    ),
-    chf_group = if_else(
-      chf == 1,
-      "CHF",
-      "No CHF"
-    ),
-    diabetes_group = if_else(
-      diabetes == 1,
-      "Diabetes",
-      "No diabetes"
-    )
-  )
-```
-
-Combining smoking and CHF
+Selecting only patients with CHF and dividing it into four lifestyle groups
 
 ```{r}
-chf_summary <- profile_data |>
-  drop_na(smoking_group, chf_group, death) |>
-  group_by(smoking_group, chf_group) |>
+chf_summary <- lifestyle_data |>
+  filter(chf == "Congestive Heart Failure (CHF)") |>
+  group_by(smoker, physact) |>
   summarise(
-    n = n(),
-    n_deaths = sum(death == 1),
-    percent_death = 100 * mean(death == 1),
+    total_patients = n(),
+    number_deaths = sum(death == 1),
+    number_alive = sum(death == 0),
+    percentage_death = number_deaths / total_patients * 100,
     .groups = "drop"
   ) |>
-  arrange(desc(percent_death))
+  arrange(desc(percentage_death))
 
 chf_summary
 ```
 
-Visualizing
+Selecting only patients with diabetes and dividing it into four lifestyle groups:
+
+```{r}
+diabetes_summary <- lifestyle_data |>
+  filter(diabetes == "Diabetes") |>
+  group_by(smoker, physact) |>
+  summarise(
+    total_patients = n(),
+    number_deaths = sum(death == 1),
+    number_alive = sum(death == 0),
+    percentage_death = number_deaths / total_patients * 100,
+    .groups = "drop"
+  ) |>
+  arrange(desc(percentage_death))
+
+diabetes_summary
+```
+
+Visualizing the combinations
 
 ```{r}
 chf_plot <- chf_summary |>
   ggplot(aes(
-    x = chf_group,
-    y = percent_death,
-    fill = smoking_group
+    x = smoker,
+    y = percentage_death,
+    fill = physact
   )) +
-  geom_col(position = "dodge", width = 0.7) +
-  geom_text(
-    aes(label = paste0(round(percent_death, 1), "%")),
-    position = position_dodge(width = 0.7),
-    vjust = -0.4,
-    size = 4
-  ) +
-  scale_fill_manual(
-    values = c(
-      "No smoking exposure" = "steelblue",
-      "Smoking exposure" = "tomato"
-    )
-  ) +
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.15))
-  ) +
+  geom_col(position = "dodge") +
   labs(
-    title = "Mortality by smoking exposure and CHF",
-    x = "CHF status",
+    title = "Mortality among patients with CHF",
+    x = "Smoking history",
     y = "Mortality (%)",
-    fill = "Smoking status"
+    fill = "Physical activity"
   ) +
   theme_minimal()
 
 chf_plot
 
 ggsave(
-  "../results/07_analysis_3/smoking_chf.png",
+  "../results/07_analysis_3/chf_plot.png",
   chf_plot,
   width = 8,
   height = 6,
@@ -202,81 +254,39 @@ ggsave(
 )
 ```
 
-We see that people who smoke and have CHF experience most of the deaths
-
-Diabetes and smoking combination:
-
-```{r}
-diabetes_summary <- profile_data |>
-  drop_na(smoking_group, diabetes_group, death) |>
-  group_by(smoking_group, diabetes_group) |>
-  summarise(
-    n = n(),
-    n_deaths = sum(death == 1),
-    percent_death = 100 * mean(death == 1),
-    .groups = "drop"
-  ) |>
-  arrange(desc(percent_death))
-
-diabetes_summary
-```
-
-Visualizing:
-
 ```{r}
 diabetes_plot <- diabetes_summary |>
   ggplot(aes(
-    x = diabetes_group,
-    y = percent_death,
-    fill = smoking_group
+    x = smoker,
+    y = percentage_death,
+    fill = physact
   )) +
-  geom_col(position = "dodge", width = 0.7) +
-  geom_text(
-    aes(label = paste0(round(percent_death, 1), "%")),
-    position = position_dodge(width = 0.7),
-    vjust = -0.4,
-    size = 4
-  ) +
-  scale_fill_manual(
-    values = c(
-      "No smoking exposure" = "steelblue",
-      "Smoking exposure" = "tomato"
-    )
-  ) +
-  scale_y_continuous(
-    expand = expansion(mult = c(0, 0.15))
-  ) +
+  geom_col(position = "dodge") +
   labs(
-    title = "Mortality by smoking exposure and diabetes",
-    x = "Diabetes status",
+    title = "Mortality among patients with diabetes",
+    x = "Smoking history",
     y = "Mortality (%)",
-    fill = "Smoking status"
+    fill = "Physical activity"
   ) +
   theme_minimal()
 
 diabetes_plot
 
 ggsave(
-  "../results/07_analysis_3/smoking_diabetes.png",
+  "../results/07_analysis_3/diabetes_plot.png",
   diabetes_plot,
-  width = 8,
+  width = 14,
   height = 6,
   dpi = 300
 )
+
 ```
 
 Combining graphs:
 
 ```{r}
 
-combined_mortality_plot <- wrap_plots(
-  chf_plot,
-  diabetes_plot,
-  ncol = 2
-) +
-  plot_annotation(
-    title = "Smoking exposure and clinical conditions"
-  )
+combined_mortality_plot <- diabetes_plot + chf_plot
 
 combined_mortality_plot
 
@@ -289,29 +299,59 @@ ggsave(
 )
 ```
 
+```{r}
+chf_test <- lifestyle_data |>
+  filter(chf == "Congestive Heart Failure (CHF)") |>
+  unite(profile, smoker, physact, sep = " + ")
+
+fisher.test(table(chf_test$profile, chf_test$death))
+```
+
+Although patients with CHF had the highest overall mortality percentage (40%), differences in mortality across smoking and physical activity profiles were not statistically significant. However, the relatively small number of patients with CHF may limit the ability to detect an association.
+
+```{r}
+diabetes_test <- lifestyle_data |>
+  filter(diabetes == "Diabetes") |>
+  unite(profile, smoker, physact, sep = " + ")
+
+fisher.test(table(diabetes_test$profile, diabetes_test$death))
+```
+
+The analysis demonstrated that patients with CHF and diabetes had high mortality percentages of 40% and 31.8%, respectively. Fisher's exact test revealed a statistically significant association between combined smoking and physical activity profiles and mortality among patients with diabetes (p = 0.01782), whereas no significant association was found among patients with CHF (p = 0.7729). These findings highlight the importance of investigating lifestyle factors alongside pre-existing illnesses to better understand mortality patterns. However, small patient groups and potential confounding factors limit the interpretation of these results, and no causal relationship can be established.
+
+After discussing with AI he suggested using Fishers test as it is better for small sample numbers. Are we leaving both statistical tests?
+
+The statistically significant result suggests that lifestyle characteristics, specifically combinations of smoking history and physical activity, are associated with mortality among patients with diabetes. This is biologically plausible because smoking and physical inactivity can contribute to cardiovascular complications and impaired glucose regulation.
+
 Statistical tests for the combinations, using logistic regression: to test whether smoking exposure and CHF/ smoking exposure and diabetes show a statistically significant interaction or joint effect on death.
 
 Smoking + CHF combinations
 
 ```{r}
-chf_four_group_data <- profile_data |>
-  drop_na(smoking_group, chf_group, death) |>
-  mutate(smoke_chf_combo = paste(smoking_group, chf_group, sep = " + ") |>
+chf_four_group_data <- lifestyle_data |>
+  filter(chf == "Congestive Heart Failure (CHF)") |>
+  drop_na(smoker, physact, death) |>
+  mutate(
+    profile = paste(smoker, physact, sep = " + ") |>
       factor(levels = c(
-          "No smoking exposure + No CHF",
-          "Smoking exposure + No CHF",
-          "No smoking exposure + CHF",
-          "Smoking exposure + CHF")))
+        "Never smoked + Physically active",
+        "Smoked + Physically active",
+        "Never smoked + Physically inactive",
+        "Smoked + Physically inactive"
+      ))
+  )
 
 chf_four_group_model <- glm(
-  formula = death ~ smoke_chf_combo,
+  formula = death ~ profile,
   data = chf_four_group_data,
-  family = binomial())
+  family = binomial()
+)
 
 chf_four_group_results <- tidy(
   x = chf_four_group_model,
   exponentiate = TRUE,
-  conf.int = TRUE)
+  conf.int = TRUE
+)
 
 chf_four_group_results
 ```
@@ -323,24 +363,30 @@ The (Intercept) row gives the baseline odds of death for the healthiest referenc
 Smoking + diabetes combinations
 
 ```{r}
-diab_four_group_data <- profile_data |>
-  drop_na(smoking_group, diabetes_group, death) |>
-  mutate(smoke_diab_combo = paste(smoking_group, diabetes_group, sep = " + ") |>
+diab_four_group_data <- lifestyle_data |>
+  filter(diabetes == "Diabetes") |>
+  drop_na(smoker, physact, death) |>
+  mutate(
+    profile = paste(smoker, physact, sep = " + ") |>
       factor(levels = c(
-          "No smoking exposure + No diabetes",
-          "Smoking exposure + No diabetes",
-          "No smoking exposure + Diabetes",
-          "Smoking exposure + Diabetes")))
+        "Never smoked + Physically active",
+        "Smoked + Physically active",
+        "Never smoked + Physically inactive",
+        "Smoked + Physically inactive"
+      ))
+  )
 
 diab_four_group_model <- glm(
-  formula = death ~ smoke_diab_combo,
+  formula = death ~ profile,
   data = diab_four_group_data,
-  family = binomial())
+  family = binomial()
+)
 
 diab_four_group_results <- tidy(
   x = diab_four_group_model,
   exponentiate = TRUE,
-  conf.int = TRUE)
+  conf.int = TRUE
+)
 
 diab_four_group_results
 ```
