@@ -69,6 +69,15 @@ cor_data <- cor_data |>
 Check normality of numeric (continuous, discrete) variables to choose the correlation method.
 
 ```{r}
+cor_data |> 
+  select("numinf",
+         "volinf",
+         "dsst",
+         "sbp",
+         "ldl",
+         "plt",
+         "aai") |> 
+  shapiro.test()
 shapiro.test(cor_data$numinf)
 shapiro.test(cor_data$volinf)
 shapiro.test(cor_data$dsst)
@@ -181,3 +190,57 @@ p.adjust(c(p1,p2,p3,p4))
 ```
 
 The associations between `sbp` and `chd_mi` with `volinf` are statistically significant as their p-values are below 0.05. These results make biological sense, as higher blood pressure can damage the blood vessels of the brain. Furthermore, myocardial infarction increases the risk of clots which can lead to brain infracts. However, the correlations are weak and the data are observational, so they show an association but not causation.
+
+```{r}
+bar_plot <- cor_data |> 
+  select(chf, 
+         diabetes, 
+         chd_angina, 
+         chd_mi, 
+         stroke_event) |> 
+  pivot_longer(cols = -stroke_event,
+               names_to = "cardio_var",
+               values_to = "condition") |> 
+  group_by(cardio_var, 
+           condition) |> 
+  summarise(stroke_rate = mean(stroke_event),
+            .groups = "drop")|>
+  mutate(stroke_per = round(stroke_rate * 100)) |> 
+  
+  ggplot(aes(x = factor(condition), # with factor() ggplot recognises the categorical variable
+             y = stroke_rate,
+             fill = cardio_var)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = str_c(stroke_per, 
+                              "%")),
+                position = position_dodge(0.9),
+                vjust = -0.2) +
+  facet_wrap(~ cardio_var, 
+             nrow = 1) +
+  scale_y_continuous(limits = c(0,0.3)) +
+  scale_fill_manual(values = c("chf" = "#9BCD9B",
+                               "diabetes" = "#8B3A62",
+                               "chd_angina" = "#CDCD00",
+                               "chd_mi" = "#8B8B7A")) +
+  labs(title = "Stroke event rate by cardiovascular condition",
+       x = "Condition (0 = absent, 1 = present)",
+       y = "Stroke event rate") +
+  theme_minimal(base_size = 9) +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  margin = margin(b = 20), # b ~ bottom
+                                  size = 13),
+        axis.title.x = element_text(margin = margin(t = 20)),# t ~ top
+        axis.title.y = element_text(margin = margin(r = 20)),
+        legend.position = "none")
+
+bar_plot
+
+ggsave("../results/08_analysis_4/stroke_event_rate_by_cd_condition.png",
+       bar_plot,
+       width = 8,
+       height = 6,
+       bg = "white",
+       dpi = 300)
+```
+
+In this step, we selected to study the binary cardiovascular variables in relation to `stroke_event` to compare the percentage of people with/without a cardiovascular condition who had a stroke event. In the bar plot a higher stroke percentage is represented by people with a cardiovascular condition (coded 1) than people without it (coded 0).
