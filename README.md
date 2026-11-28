@@ -22,3 +22,10 @@ To get the data:
 `data/_raw/` folder and generate the processed `.tsv` file. 
 3. Per course guidelines, all raw and processed data files are ignored by 
 `.gitignore` and remain only on the local machine.
+
+## Declaration of AI Use
+* **Tools:** We used Claude, Gemini, ChatGPT.
+* **Purpose:** We used AI for brainstorming ideas, conceptual clarification, and troubleshooting R code.
+* **Scope:** AI was used intermittently across our R analysis workflow as a supporting aid.
+* **Verification:** All AI-generated code, interpretations, and suggestions were reviewed, tested,and refined against course material by the group.
+* **Impact:** AI helped us debug code and clarify some concepts, while all final decisions, code, and final interpretations were made by the group.
