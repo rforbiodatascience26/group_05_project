@@ -1,0 +1,110 @@
+---
+title: "09_analysis_5"
+format: html
+---
+
+Load libraries
+```{r}
+library("tidyverse")
+library("broom")
+```
+
+Read cleaned and augmented dataset
+```{r}
+clean_data <- read_tsv(
+  file = "../data/03_dat_aug.tsv",
+  show_col_types = FALSE)
+```
+
+Preper predictors: Set reference levels for categorical predictors, applies log1p() to infarct volume (volinf) to handle right skew and zeros, and drops rows with missing values in the model variables.
+```{r}
+adj_data <- clean_data |>
+  mutate(
+    smoker_group = factor(
+      if_else(smoker == "never", "Never smoked", "Smoked"),
+      levels = c("Never smoked", "Smoked")),
+    chf = factor(chf, levels = c(0, 1), labels = c("No CHF", "CHF")),
+    diabetes = factor(diabetes, levels = c(0, 1), labels = c("No diabetes", "Diabetes")),
+    stroke_event = factor(
+      if_else(stroke == 2, 1, 0),
+      levels = c(0, 1),
+      labels = c("No stroke", "Prior stroke")),
+    sex = factor(sex, levels = c("Female", "Male")),
+    log_volinf = log1p(volinf)
+  ) |>
+  drop_na(
+    death, age, sex, chf, diabetes, smoker_group,
+    stroke_event, dsst, aai, log_volinf)
+```
+
+Fit logistic regression: Models the binary outcome death using multiple 
+predictors at once (glm with a binomial family) and converts the results into 
+odds ratios with 95% confidence intervals to measure each variable's independent 
+link to mortality.
+```{r}
+adj_model <- glm(
+  formula = death ~ age + sex + chf + diabetes + smoker_group +
+    stroke_event + dsst + aai + log_volinf,
+  data = adj_data,
+  family = binomial())
+
+adj_results <- tidy(
+  x = adj_model,
+  exponentiate = TRUE,
+  conf.int = TRUE)
+
+adj_results
+```
+
+Plot odds ratios: Plots the adjusted odds ratios and their 95% confidence 
+intervals against a reference line at 1, colored by statistical significance.
+```{r}
+or_plot <- adj_results |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    significant = if_else(p.value < 0.05, "p < 0.05", "p >= 0.05"),
+    term = fct_reorder(.f = term, .x = estimate)
+  ) |>
+  ggplot(aes(
+    x = estimate,
+    y = term,
+    colour = significant
+  )) +
+  geom_vline(
+    xintercept = 1,
+    linetype = "dashed"
+  ) +
+  geom_errorbarh(
+    aes(
+      xmin = conf.low,
+      xmax = conf.high),
+    height = 0.2
+  ) +
+  geom_point(size = 3) +
+  labs(
+    title = "Adjusted odds ratios for mortality",
+    x = "Odds ratio",
+    y = NULL,
+    colour = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+or_plot
+```
+
+Save results
+```{r}
+dir.create(
+  path = "../results/09_analysis_5",
+  showWarnings = FALSE,
+  recursive = TRUE)
+
+ggsave(
+  filename = "../results/09_analysis_5/adjusted_or_plot.png",
+  plot = or_plot,
+  width = 9,
+  height = 5.5,
+  dpi = 300)
+```
+
