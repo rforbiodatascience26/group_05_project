@@ -10,8 +10,9 @@ Load libraries
 
 ```{r}
 library(tidyverse)
-library(ggplot2)
 library(dplyr)
+library(purrr)
+library(ggplot2)
 ```
 
 Load the clean and augmented data
@@ -46,22 +47,22 @@ cor_data |>
   str() 
 ```
 
-Prepare the dataset for correlation analysis: The variables `stroke` and `chd` are ordinal, including 3 categories (0,1,2). We split the initial variables into 2 new ones:
+Prepare the data set for correlation analysis: The variables `stroke` and `chd` are ordinal, including 3 categories (0,1,2). We split the initial variables into 2 new ones:
 
 -stroke -\> stroke_tia (tia: transient ischemic attack), stroke_event
 
 -chd -\> chd-angina, chd_mi (mi: myocardial infarction) (abbreviations from rigr package documentation)
 
-*(use of AI assistance)*
-
 ```{r}
 cor_data <- cor_data |>
-  # create the dummy variables
-  mutate(stroke_tia = as.numeric(stroke == 1),
-         stroke_event = as.numeric(stroke == 2),
-         chd_angina = as.numeric(chd == 1),
-         chd_mi = as.numeric(chd == 2)) |>
-  # remove the initial variables from the subset
+  mutate(stroke_tia = case_when(stroke == 1 ~ 1,
+                                  .default = 0),
+         stroke_event = case_when(stroke == 2 ~ 1,
+                                  .default = 0),
+         chd_angina = case_when(chd == 1 ~ 1,
+                                  .default = 0),
+         chd_mi = case_when(chd == 2 ~ 1,
+                                  .default = 0)) |>
   select(-stroke,
          -chd)
 ```
@@ -77,14 +78,7 @@ cor_data |>
          "ldl",
          "plt",
          "aai") |> 
-  shapiro.test()
-shapiro.test(cor_data$numinf)
-shapiro.test(cor_data$volinf)
-shapiro.test(cor_data$dsst)
-shapiro.test(cor_data$sbp)
-shapiro.test(cor_data$ldl)
-shapiro.test(cor_data$plt)
-shapiro.test(cor_data$aai)
+  map(shapiro.test)
 ```
 
 The variables in the subset are classified as binary, ordinal, discrete or continuous and the majority of the numeric ones are not normally distributed (p-value\<0.05), for this reason we choose the Spearman correlation method.
@@ -92,8 +86,8 @@ The variables in the subset are classified as binary, ordinal, discrete or conti
 Study the correlation between the variables associated with brain and cardiovascular health
 
 ```{r}
-# create correlation matrix
- cardio_vars<- cor_data |> 
+# correlation matrix
+ cardio_vars <- cor_data |> 
    select(dsst, # continuous
          atrophy, # ordinal 
          whgrd, # ordinal
@@ -102,7 +96,7 @@ Study the correlation between the variables associated with brain and cardiovasc
          stroke_tia, # binary
          stroke_event) # binary 
  brain_vars <- cor_data |> 
-  select(sbp, # continuous
+   select(sbp, # continuous
          ldl, # continuous
          aai, # continuous
          chf, # binary
@@ -110,9 +104,11 @@ Study the correlation between the variables associated with brain and cardiovasc
          chd_angina,# binary
          chd_mi, # binary
          plt) # discrete
+ 
  cor_matrix <- round(cor(cardio_vars,
                          brain_vars,
-                         method = "spearman"), 5)
+                         method = "spearman"),
+                     5)
 ```
 
 Investigate correlation matrix
@@ -122,7 +118,7 @@ cor_matrix |>
  range()
 ```
 
-Tidy the data frame before visualization
+Tidy the data before visualization
 
 ```{r}
 cor_tbl <- cor_matrix |>
@@ -135,7 +131,7 @@ cor_tbl <- cor_matrix |>
 Create a heatmap to visualize the results from the correlation matrix
 
 ```{r}
-cor_plot <- cor_tbl |> 
+cor_heatmap <- cor_tbl |> 
   ggplot(aes(x = brain,
              y = cardiovascular,
              fill = correlation)) +
@@ -150,12 +146,18 @@ cor_plot <- cor_tbl |>
        y = "Cardiovascular variables",
        fill = "Spearman correlation",
        caption = "Note: Color scale limited to [-0.35, 0.35] to improve visual contrast.")+
-  theme_minimal(base_size = 11) +
-  theme(legend.position = "bottom")
-cor_plot
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5,
+                                  margin = margin(b = 15), # b ~ bottom
+                                  size = 13),
+        axis.title.x = element_text(margin = margin(t = 15)), # t ~ top
+        axis.title.y = element_text(margin = margin(r = 15)),
+    legend.position = "bottom")
 
-ggsave("../results/08_analysis_4/correlation_plot.png",
-       cor_plot,
+cor_heatmap
+
+ggsave("../results/08_analysis_4/correlation_heatmap.png",
+       cor_heatmap,
        width = 8,
        height = 6,
        bg = "white",
@@ -164,32 +166,13 @@ ggsave("../results/08_analysis_4/correlation_plot.png",
 
 The heatmap shows that the correlations between the two sets of variables are weak, as their values have a range of -0.16570 - 0.20605 and the correlation is stronger when the value is closer to +/- 1.
 
-(I will change it)
+The strongest positive correlation in this analysis, is between `dsst` (Digit Symbol Substitution Test score) and `aai` (Ankle Brachial Index). Ankle Brachial Index reflects overall vascular health and blood flow, while the Digit Symbol Substitution score is a neurophychological test used to assess cognitive performance. Therefore, a normal aai (1.0-1.4) indicates good circulation which helps maintain healthy blood flow to the brain and supports better cognitive processing on the dsst (higher score). This connection between blood flow and brain function could explain why the two variables show a positive correlation. Furthermore, `aai` shows negative correlation with the other brain variables (`numinf`, `volinf`, `stroke_event` and `whgrd`). Since a lower `aai` indicates poorer circulation, worse vascular health would go with a higher number and volume of infarcts and more white-matter damage (`whgrd`). In contrast, `sbp` (Systolic Blood Pressure) shows the strongest negative correlation with `dsst` and positive with the rest of the brain markers.
 
-The strongest positive correlation in this analysis, is between the `dsst` variable (Digit Symbol Substitution Test score) and the `aai` (Ankle Brachial Index). More specifically, Ankle Brachial Index reflects overall vascular health and blood flow, while the Digit Symbol Substitution score is a neurophychological test used to assess cognitive performance. Therefore, a higher aai (within the normal range) indicates better circulation which helps maintain healthy blood flow to the brain and supports faster cognitive processing on the dsst. This connection between blood flow and brain function explains why the two variables show a possible correlation, although other demographical factors might influence the result. In contrast, `plt` and `ldl` show no correlation with any of the brain variables.
+Diabetes and cardiovascular risk indicators (`chf`, `chd_mi`, `chd_angina`) show positive correlations with `stroke_event` and `volinf`. All of these conditions can damage blood vessels and affect the blood flow to the brain, which could explain the association.
 
-```{r}
-#delete
-p0 <- cor.test(cor_data$dsst, cor_data$aai, method = "spearman", exact = FALSE)
-p0
-```
+Finally, `atrophy` , `stroke_tia`, `plt` and `ldl` show the weakest correlations (values closer to 0).
 
-Next, we will focus on other variables that show weak positive correlations in the heatmap, to test their p-values and check whether these correlations are statistically reliable.
-
-Variables: `sbp`, `chd_mi`, `atrophy`, `volinf`
-
-```{r}
-# correlation test to check p-values
-# exact = FALSE : calculate an approximate p-value when the values of variables are identical
-p1 <- cor.test(cor_data$sbp, cor_data$atrophy, method = "spearman", exact = FALSE)$p.value
-p2 <- cor.test(cor_data$sbp, cor_data$volinf, method = "spearman", exact = FALSE)$p.value
-p3 <- cor.test(cor_data$chd_mi, cor_data$atrophy, method = "spearman", exact = FALSE)$p.value
-p4 <- cor.test(cor_data$chd_mi, cor_data$volinf, method = "spearman", exact = FALSE)$p.value
-
-p.adjust(c(p1,p2,p3,p4))
-```
-
-The associations between `sbp` and `chd_mi` with `volinf` are statistically significant as their p-values are below 0.05. These results make biological sense, as higher blood pressure can damage the blood vessels of the brain. Furthermore, myocardial infarction increases the risk of clots which can lead to brain infracts. However, the correlations are weak and the data are observational, so they show an association but not causation.
+Next, we focused our exploratory analysis on binary variables, since a correlation coefficient provides only a limited understanding between them. More specifically, we selected the vascular and metabolic risk indicators in relation to `stroke_event` to compare the percentage of people with and without each condition who had a stroke event.
 
 ```{r}
 bar_plot <- cor_data |> 
@@ -243,4 +226,12 @@ ggsave("../results/08_analysis_4/stroke_event_rate_by_cd_condition.png",
        dpi = 300)
 ```
 
-In this step, we selected to study the binary cardiovascular variables in relation to `stroke_event` to compare the percentage of people with/without a cardiovascular condition who had a stroke event. In the bar plot a higher stroke percentage is represented by people with a cardiovascular condition (coded 1) than people without it (coded 0).
+In the bar plot a higher stroke percentage was represented by people with a cardiovascular condition (coded 1) than people without it (coded 0), indicating that cardiac factors can influence the stroke outcome. The stroke percentage was about 8-9% in people without a condition and about 18-26% in people with one, with `chf` representing the highest rate. This suggests that cardiac and metabolic conditions may be associated with a higher chance of having a stroke, which also agrees with the postive correlations in the heatmap. However, the goal of this analysis was to explore possible correlations between variables and not building a model to predict a stroke event. Finally, the percentages are not very precise as the groups of people with a condition are small and the same people can have several conditions.
+
+Sources *(not sure if we have to include them)*:
+
+<https://med.stanford.edu/stanfordmedicine25/the25/ankle-brachial-index.html>
+
+<https://pubmed.ncbi.nlm.nih.gov/27496932/>
+
+<https://pmc.ncbi.nlm.nih.gov/articles/PMC9721101/>
